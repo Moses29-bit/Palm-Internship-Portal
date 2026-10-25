@@ -1,0 +1,10 @@
+public enum PlacementStatus {
+    OFFERED,
+    PENDING_CONFIRMATION,
+    CONFIRMED,
+    ACTIVE,
+    SUSPENDED,
+    COMPLETED,
+    CANCELLED,
+    TERMINATED
+}

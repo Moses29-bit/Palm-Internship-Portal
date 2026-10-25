@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a3d2b">
+  <meta name="description" content="Palm University College Internship Placement Portal">
+  <title>Palm University College | Internship Placement Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="portal-ui.css">
+</head>
+<body>
+  <main id="landing" class="landing-page">
+    <header class="landing-nav">
+      <a class="landing-brand" href="#landing" aria-label="Palm University College Internship Portal home">
+        <span class="landing-brand-mark"><img src="puc.png" alt="Palm University College"></span>
+        <span><strong>Palm University College</strong><small>Internship Placement Portal</small></span>
+      </a>
+      <nav class="landing-links" aria-label="Public navigation">
+        <a href="#about">About</a>
+        <a href="#roles">For Students</a>
+        <a href="#roles">For Partners</a>
+        <a href="#how-it-works">How it works</a>
+      </nav>
+      <button id="landing-login" class="landing-login" type="button">Sign in <span aria-hidden="true">→</span></button>
+    </header>
+
+    <section class="landing-hero">
+      <div class="landing-hero-copy">
+        <span class="landing-eyebrow">Palm University College · Career Services</span>
+        <h1>From the classroom<br><em>to the workplace.</em></h1>
+        <p>One connected platform for discovering internship opportunities, applying for placements, tracking your progress and building meaningful industry experience.</p>
+        <div class="landing-cta-row">
+          <button id="landing-start" class="landing-primary" type="button">Start your internship journey <span>→</span></button>
+          <a class="landing-secondary" href="#how-it-works">Explore the portal</a>
+        </div>
+        <div class="landing-trust"><span>Learn</span><i></i><span>Experience</span><i></i><span>Grow</span></div>
+      </div>
+      <div class="landing-hero-panel" aria-label="Internship journey preview">
+        <div class="hero-panel-glow"></div>
+        <div class="journey-card">
+          <div class="journey-top"><span>INTERNSHIP JOURNEY</span><b>2026 / 27</b></div>
+          <div class="journey-progress"><span style="width:68%"></span></div>
+          <div class="journey-stage"><strong>Placement in progress</strong><small>Building experience beyond the classroom</small></div>
+          <div class="journey-steps">
+            <div class="done"><span>✓</span><b>Profile</b></div><div class="done"><span>✓</span><b>Apply</b></div><div class="current"><span>3</span><b>Placement</b></div><div><span>4</span><b>Grow</b></div>
+          </div>
+        </div>
+        <div class="floating-card floating-one"><small>OPPORTUNITIES</small><strong>Discover partner companies</strong></div>
+        <div class="floating-card floating-two"><small>PROGRESS</small><strong>Track every stage</strong></div>
+      </div>
+    </section>
+
+    <section id="about" class="landing-section landing-intro">
+      <div><span class="landing-section-label">A connected experience</span><h2>Everything you need to make your internship count.</h2></div>
+      <p>Palm's Internship Placement Portal brings students, university coordinators and industry partners into one organised workflow — from the first application to the final report.</p>
+    </section>
+
+    <section id="roles" class="landing-section">
+      <div class="landing-section-head"><div><span class="landing-section-label">Built for every side of the journey</span><h2>One platform. Three experiences.</h2></div></div>
+      <div class="landing-role-grid">
+        <article class="landing-role-card featured"><span class="role-number">01</span><div class="role-icon">↗</div><h3>Students</h3><p>Find opportunities, submit your application, manage your CV and follow your placement from approval to completion.</p><ul><li>Discover internship opportunities</li><li>Track applications and placement status</li><li>Manage attendance and digital logbook</li></ul><button type="button" data-login-role="student">Student sign in →</button></article>
+        <article class="landing-role-card"><span class="role-number">02</span><div class="role-icon">◫</div><h3>University Coordinators</h3><p>Review applications, coordinate placements, monitor student progress and produce useful academic reports.</p><ul><li>Manage applications and placements</li><li>Monitor attendance and logbooks</li><li>Generate reports and audit activity</li></ul><button type="button" data-login-role="coordinator">Coordinator sign in →</button></article>
+        <article class="landing-role-card"><span class="role-number">03</span><div class="role-icon">⌂</div><h3>Industry Partners</h3><p>Connect with Palm students, review candidates, manage interns and contribute to their professional development.</p><ul><li>Review forwarded applications</li><li>Manage interns and evaluations</li><li>Submit final reports and feedback</li></ul><button type="button" data-login-role="partner">Partner sign in →</button></article>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="landing-section landing-process">
+      <div class="process-copy"><span class="landing-section-label">How it works</span><h2>A clear path from preparation to professional experience.</h2><p>The portal keeps every important step visible, so students and their supervisors always know what happens next.</p><button id="process-start" class="landing-primary" type="button">Get started <span>→</span></button></div>
+      <div class="process-list">
+        <div><span>01</span><div><strong>Build your profile</strong><p>Keep your academic details, skills and CV ready for opportunities.</p></div></div>
+        <div><span>02</span><div><strong>Discover & apply</strong><p>Explore partner companies and submit a focused internship application.</p></div></div>
+        <div><span>03</span><div><strong>Track your placement</strong><p>Follow approvals, attendance, logbook entries and important notifications.</p></div></div>
+        <div><span>04</span><div><strong>Complete & grow</strong><p>Receive evaluations, submit final records and turn experience into career momentum.</p></div></div>
+      </div>
+    </section>
+
+    <section class="landing-final"><div><span class="landing-section-label">Ready when you are</span><h2>Your next chapter starts here.</h2><p>Sign in to continue your internship journey with Palm University College.</p></div><button id="landing-final-login" class="landing-primary light" type="button">Sign in to the portal <span>→</span></button></section>
+
+    <footer class="landing-footer"><div class="landing-brand"><span class="landing-brand-mark"><img src="puc.png" alt="Palm University College"></span><span><strong>Palm University College</strong><small>Internship Placement Portal</small></span></div><span>© 2026 Palm University College · Internship Placement Portal</span></footer>
+  </main>
+
+  <main id="login" class="login" hidden>
+    <section class="hero-pane" aria-label="About the internship portal">
+      <div class="brand-lockup">
+        <div id="lp" class="brand-logo"></div>
+        <div class="brand-name">
+          <strong>Palm University College</strong>
+          <span>Internship Placement Portal</span>
+        </div>
+      </div>
+
+      <div class="hero-copy">
+        <span class="hero-kicker">Your next chapter starts here</span>
+        <h2>Education goes beyond the classroom.</h2>
+        <p>Find the right placement, build real-world experience and take the next step in your career.</p>
+      </div>
+
+      <div class="hero-footer">
+        <span>Learn</span><span></span><span>Experience</span><span></span><span>Grow</span>
+      </div>
+    </section>
+
+    <section class="auth-pane" aria-label="Sign in">
+      <form id="lf" class="login-form">
+        <div class="mobile-brand">
+          <img src="puc.png" alt="Palm University College">
+        </div>
+        <header class="auth-heading">
+          <span class="auth-kicker">Internship Placement Portal</span>
+          <h1>Welcome back</h1>
+          <p>Sign in to continue to your account.</p>
+        </header>
+
+        <div class="auth-fields">
+          <label class="auth-field" for="un">
+            <span>Username or student ID</span>
+            <span class="auth-input">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
+              <input id="un" name="username" type="text" placeholder="Enter your username or ID" required autocomplete="username">
+            </span>
+          </label>
+          <label class="auth-field" for="pw">
+            <span>Password</span>
+            <span class="auth-input">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10" width="15" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+              <input id="pw" name="password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+            </span>
+          </label>
+        </div>
+
+        <p id="lerr" class="login-error" role="alert" aria-live="polite"></p>
+        <button class="login-submit" type="submit">
+          <span>Sign in</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+        </button>
+
+        <footer class="auth-footer">
+          <span class="secure-icon" aria-hidden="true">✓</span>
+          <span>Your account is protected by secure sign-in.</span>
+        </footer>
+      </form>
+    </section>
+  </main>
+
+  <div id="app" hidden></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="portal-icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

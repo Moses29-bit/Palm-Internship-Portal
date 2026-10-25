@@ -1,0 +1,15 @@
+public enum ApplicationStatus {
+    DRAFT,
+    SUBMITTED,
+    UNDER_REVIEW,
+    SHORTLISTED,
+    FORWARDED,
+    COMPANY_REVIEW,
+    INTERVIEW,
+    ACCEPTED,
+    REJECTED,
+    WITHDRAWN,
+    DECLINED,
+    EXPIRED,
+    CANCELLED
+}

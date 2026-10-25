@@ -1,0 +1,7 @@
+.env
+.env.local
+data.tsv
+*-migration.tsv
+target/
+.neon
+node_modules/

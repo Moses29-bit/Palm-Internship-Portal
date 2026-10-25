@@ -1,0 +1,49 @@
+PHASES 5–8 TEST CHECKLIST
+
+DATABASE
+[ ] Database snapshot created before migration
+[ ] Additive migration completes without error
+[ ] v_portal_dashboard_counts returns expected metrics
+[ ] Existing Phase 2A tables and records remain intact
+
+PHASE 5 — OPERATIONS
+[ ] Attendance saved for one placement/date
+[ ] Duplicate placement/date updates one row instead of creating a duplicate
+[ ] Attendance review rejects unsupported statuses
+[ ] Logbook draft can be saved
+[ ] Submitted logbook cannot be silently overwritten after approval
+[ ] Coordinator can record a monitoring visit
+[ ] Notification recipient sees only their own notifications
+
+PHASE 6 — EVALUATION / COMPLETION
+[ ] Evaluation score accepts 0–100 only
+[ ] Rating accepts 0–5 only
+[ ] Report submission uses allowed report types
+[ ] Report review validates status transitions
+[ ] Placement completion is blocked without an approved student final report
+[ ] Placement completion is blocked for invalid placement statuses
+
+PHASE 7 — ANALYTICS
+[ ] Dashboard counts load for authorized roles only
+[ ] Placement status breakdown matches test data
+[ ] Application status breakdown matches test data
+[ ] Analytics endpoints do not expose personal student data unnecessarily
+
+PHASE 8 — SECURITY / UI
+[ ] State-changing routes reject missing/invalid CSRF token
+[ ] User IDs are taken from server-side authentication context
+[ ] Student A cannot read or modify Student B records
+[ ] Company account cannot access an unrelated company's placements
+[ ] Prepared statements used for all user-controlled SQL values
+[ ] Rate limits and generic login errors verified
+[ ] Secure, HttpOnly, SameSite cookies checked in production config
+[ ] Keyboard focus visible and buttons have accessible labels
+[ ] Tables scroll on small screens without breaking page layout
+[ ] Notification, status, approved, back and other icons have semantic SVGs
+[ ] Error responses do not expose stack traces or database details
+
+RELEASE GATE
+[ ] All checks pass in a development/staging environment
+[ ] No credentials committed to source control
+[ ] Database backup and rollback plan confirmed
+[ ] Route integration reviewed before production deployment

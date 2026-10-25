@@ -1,0 +1,88 @@
+-- Palm Internship Placement Portal: database schema (MariaDB / MySQL).
+-- Import in phpMyAdmin (Import tab) or run: mysql -u root -p < schema.sql
+-- Safe to run again: it creates what is missing and upgrades older versions without deleting data.
+CREATE DATABASE IF NOT EXISTS palm_portal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE palm_portal;
+
+CREATE TABLE IF NOT EXISTS users (
+  username VARCHAR(120) PRIMARY KEY, role VARCHAR(10) NOT NULL, ref VARCHAR(10) NOT NULL,
+  salt VARBINARY(16) NOT NULL, pass_hash VARBINARY(32) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS students (
+  id VARCHAR(10) PRIMARY KEY, name VARCHAR(60) NOT NULL, program VARCHAR(60) NOT NULL,
+  email VARCHAR(120) NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS companies (
+  id VARCHAR(10) PRIMARY KEY, name VARCHAR(60) NOT NULL, industry VARCHAR(40), focus VARCHAR(120), capacity INT NOT NULL,
+  email VARCHAR(120) NOT NULL DEFAULT '', website VARCHAR(200) NOT NULL DEFAULT '', about VARCHAR(600) NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS unverified (username VARCHAR(120) PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS applications (
+  id VARCHAR(10) PRIMARY KEY, student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL DEFAULT '',
+  pref VARCHAR(60), statement VARCHAR(400) NOT NULL, status VARCHAR(12) NOT NULL, updated_on DATE NOT NULL,
+  school_note VARCHAR(300) NOT NULL DEFAULT '', company_note VARCHAR(300) NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS placements (
+  id INT AUTO_INCREMENT PRIMARY KEY, student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL,
+  status VARCHAR(12) NOT NULL, placed_on DATE NOT NULL, start_date DATE NULL, end_date DATE NULL
+);
+CREATE TABLE IF NOT EXISTS attendance (
+  id INT AUTO_INCREMENT PRIMARY KEY, student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL,
+  clock_in DATETIME NOT NULL, clock_out DATETIME NULL
+);
+CREATE TABLE IF NOT EXISTS reports (
+  student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL, summary VARCHAR(300) NOT NULL DEFAULT '',
+  reported_on DATE NOT NULL, PRIMARY KEY (student_id, company_id)
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id VARCHAR(10) PRIMARY KEY, company_id VARCHAR(10) NOT NULL,
+  type VARCHAR(10) NOT NULL, title VARCHAR(80) NOT NULL, body VARCHAR(600) NOT NULL, posted_on DATE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS logbook (
+  id VARCHAR(10) PRIMARY KEY, student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL,
+  week DATE NOT NULL, body VARCHAR(1500) NOT NULL, status VARCHAR(12) NOT NULL,
+  note VARCHAR(300) NOT NULL DEFAULT '', created_on DATE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS evaluations (
+  student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL,
+  punctuality INT NOT NULL, skills INT NOT NULL, attitude INT NOT NULL, teamwork INT NOT NULL,
+  comment VARCHAR(500) NOT NULL DEFAULT '', created_on DATE NOT NULL, PRIMARY KEY (student_id, company_id)
+);
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(120) NOT NULL,
+  created_at DATETIME NOT NULL, text VARCHAR(300) NOT NULL, is_read SMALLINT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY, created_at DATETIME NOT NULL, actor VARCHAR(120) NOT NULL,
+  action VARCHAR(60) NOT NULL, detail VARCHAR(300) NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS settings (k VARCHAR(40) PRIMARY KEY, v VARCHAR(255) NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS student_register (email VARCHAR(120) PRIMARY KEY, name VARCHAR(60) NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS access_requests (
+  id VARCHAR(20) PRIMARY KEY, name VARCHAR(60) NOT NULL, program VARCHAR(60) NOT NULL,
+  email VARCHAR(120) NOT NULL, reason VARCHAR(300) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  CHECK (status IN ('PENDING','APPROVED','REJECTED'))
+);
+
+-- Upgrades for older MariaDB/MySQL installations
+ALTER TABLE users MODIFY username VARCHAR(120) NOT NULL;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS email VARCHAR(120) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS email VARCHAR(120) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS website VARCHAR(200) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS about VARCHAR(600) NOT NULL DEFAULT '';
+ALTER TABLE placements ADD COLUMN IF NOT EXISTS start_date DATE NULL;
+ALTER TABLE placements ADD COLUMN IF NOT EXISTS end_date DATE NULL;
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS school_note VARCHAR(300) NOT NULL DEFAULT '';
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS company_note VARCHAR(300) NOT NULL DEFAULT '';
+ALTER TABLE notifications MODIFY is_read SMALLINT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_app_student ON applications (student_id);
+CREATE INDEX IF NOT EXISTS idx_app_company ON applications (company_id, status);
+CREATE INDEX IF NOT EXISTS idx_place_student ON placements (student_id);
+CREATE INDEX IF NOT EXISTS idx_place_company ON placements (company_id, status);
+CREATE INDEX IF NOT EXISTS idx_att_student ON attendance (student_id, clock_in);
+CREATE INDEX IF NOT EXISTS idx_log_student ON logbook (student_id, week);
+CREATE INDEX IF NOT EXISTS idx_note_user ON notifications (username, is_read);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log (created_at);
+CREATE INDEX IF NOT EXISTS idx_user_ref ON users (role, ref);
