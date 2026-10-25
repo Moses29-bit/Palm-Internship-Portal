@@ -1,0 +1,14 @@
+.env
+.env.*
+.git
+.github
+.vscode
+.neon
+.neonrc
+node_modules
+target
+data.tsv
+*-migration.tsv
+cvs
+reports
+*.zip

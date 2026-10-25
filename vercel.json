@@ -1,0 +1,16 @@
+{
+  "services": {
+    "portal": {
+      "root": ".",
+      "entrypoint": "Dockerfile"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "portal"
+      }
+    }
+  ]
+}

@@ -21,6 +21,22 @@ The default database URL remains `jdbc:mariadb://localhost:3306/palm_portal`. Cr
 
 The Java server loads `.env` and `.env.local` at startup; process environment variables take precedence. Keep both files private. The Maven project includes PostgreSQL and MariaDB drivers. `DATABASE_URL` takes precedence over `DB_URL`; the PostgreSQL path uses double-quoted identifiers and PostgreSQL-compatible parameter binding. Hosted database connections are retried up to three times.
 
+## Vercel deployment (container runtime)
+
+The project includes a root [`Dockerfile`](Dockerfile) for [Vercel's Container Runtime](https://vercel.com/docs/functions/runtimes/container). Vercel's container support is currently in beta; select the Container framework/runtime for the project and deploy the repository. The image builds with Java 25, runs the existing Java HTTP server, binds to `0.0.0.0`, and listens on port `8080`. Set `PORT=8080` in Vercel's project environment variables as well: Vercel's container runtime defaults to port 80 unless overridden. `.dockerignore` excludes `.env` files, local data exports, uploaded documents, and development dependencies from the image.
+
+Configure these server-side environment variables in Vercel before deploying:
+
+- `DATABASE_URL`: the rotated Neon pooled connection string for the live app.
+- `ADMIN_PASSWORD`: a unique, strong password (at least 12 characters in production).
+- `PRODUCTION=true`.
+- `PORT=8080`.
+- SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, and optionally `SMTP_SECURITY`) if production email verification is required.
+
+Never copy credentials from a local `.env` into the image or source control. Rotate any Neon credential that has been exposed, then save the replacement only in local secret storage and Vercel's encrypted environment settings. Use the direct/unpooled Neon URL only for migrations, not the app's `DATABASE_URL`.
+
+This configuration makes a container deployment possible; it does not make the current app horizontally scalable or its uploads durable. The server stores sessions and rate limits in process memory, rewrites application tables from in-memory state, and saves CV/report PDFs to local disk. Vercel may restart or scale containers, and local files are ephemeral, so sessions can be lost, concurrent instances can overwrite stale state, and uploaded documents can disappear. Do not use this deployment for real users until session/rate-limit state is shared, database writes are safe under concurrent instances, and CV/report files use durable object storage. Build and test first in a non-production Vercel environment.
+
 For an existing database, run [`static/migrations/20261025_student_access_requests.sql`](static/migrations/20261025_student_access_requests.sql) before deploying this version; it adds the request table and indexes without removing existing data.
 
 Student registration requires a populated approved list. If no list is loaded, signup is closed; configure the list in Admin → Student List before inviting students. Set `PRODUCTION=true`, use a strong `ADMIN_PASSWORD`, and configure SMTP to require email verification for production signups.
