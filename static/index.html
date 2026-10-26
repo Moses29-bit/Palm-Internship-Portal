@@ -9,7 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=20261025-icons2">
   <link rel="stylesheet" href="portal-ui.css">
 </head>
 <body>
@@ -25,7 +26,7 @@
         <a href="#roles">For Partners</a>
         <a href="#how-it-works">How it works</a>
       </nav>
-      <button id="landing-login" class="landing-login" type="button">Sign in <span aria-hidden="true">→</span></button>
+      <button id="landing-login" class="landing-login" type="button">Sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
     </header>
 
     <section class="landing-hero">
@@ -34,7 +35,7 @@
         <h1>From the classroom<br><em>to the workplace.</em></h1>
         <p>One connected platform for discovering internship opportunities, applying for placements, tracking your progress and building meaningful industry experience.</p>
         <div class="landing-cta-row">
-          <button id="landing-start" class="landing-primary" type="button">Start your internship journey <span>→</span></button>
+          <button id="landing-start" class="landing-primary" type="button">Start your internship journey <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
           <a class="landing-secondary" href="#how-it-works">Explore the portal</a>
         </div>
         <div class="landing-trust"><span>Learn</span><i></i><span>Experience</span><i></i><span>Grow</span></div>
@@ -46,7 +47,7 @@
           <div class="journey-progress"><span style="width:68%"></span></div>
           <div class="journey-stage"><strong>Placement in progress</strong><small>Building experience beyond the classroom</small></div>
           <div class="journey-steps">
-            <div class="done"><span>✓</span><b>Profile</b></div><div class="done"><span>✓</span><b>Apply</b></div><div class="current"><span>3</span><b>Placement</b></div><div><span>4</span><b>Grow</b></div>
+            <div class="done"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span><b>Profile</b></div><div class="done"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span><b>Apply</b></div><div class="current"><span>3</span><b>Placement</b></div><div><span>4</span><b>Grow</b></div>
           </div>
         </div>
         <div class="floating-card floating-one"><small>OPPORTUNITIES</small><strong>Discover partner companies</strong></div>
@@ -62,14 +63,41 @@
     <section id="roles" class="landing-section">
       <div class="landing-section-head"><div><span class="landing-section-label">Built for every side of the journey</span><h2>One platform. Three experiences.</h2></div></div>
       <div class="landing-role-grid">
-        <article class="landing-role-card featured"><span class="role-number">01</span><div class="role-icon">↗</div><h3>Students</h3><p>Find opportunities, submit your application, manage your CV and follow your placement from approval to completion.</p><ul><li>Discover internship opportunities</li><li>Track applications and placement status</li><li>Manage attendance and digital logbook</li></ul><button type="button" data-login-role="student">Student sign in →</button></article>
-        <article class="landing-role-card"><span class="role-number">02</span><div class="role-icon">◫</div><h3>University Coordinators</h3><p>Review applications, coordinate placements, monitor student progress and produce useful academic reports.</p><ul><li>Manage applications and placements</li><li>Monitor attendance and logbooks</li><li>Generate reports and audit activity</li></ul><button type="button" data-login-role="coordinator">Coordinator sign in →</button></article>
-        <article class="landing-role-card"><span class="role-number">03</span><div class="role-icon">⌂</div><h3>Industry Partners</h3><p>Connect with Palm students, review candidates, manage interns and contribute to their professional development.</p><ul><li>Review forwarded applications</li><li>Manage interns and evaluations</li><li>Submit final reports and feedback</li></ul><button type="button" data-login-role="partner">Partner sign in →</button></article>
+        <article class="landing-role-card featured">
+          <span class="role-number">01</span>
+          <div class="role-icon" aria-hidden="true">
+            <span class="material-symbols-outlined" aria-hidden="true">school</span>
+          </div>
+          <h3>Students</h3>
+          <p>Find opportunities, submit your application, manage your CV and follow your placement from approval to completion.</p>
+          <ul><li>Discover internship opportunities</li><li>Track applications and placement status</li><li>Manage attendance and digital logbook</li></ul>
+          <button type="button" data-login-role="student">Student sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+        </article>
+        <article class="landing-role-card">
+          <span class="role-number">02</span>
+          <div class="role-icon" aria-hidden="true">
+            <span class="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>
+          </div>
+          <h3>University Coordinators</h3>
+          <p>Review applications, coordinate placements, monitor student progress and produce useful academic reports.</p>
+          <ul><li>Manage applications and placements</li><li>Monitor attendance and logbooks</li><li>Generate reports and audit activity</li></ul>
+          <button type="button" data-login-role="coordinator">Coordinator sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+        </article>
+        <article class="landing-role-card">
+          <span class="role-number">03</span>
+          <div class="role-icon" aria-hidden="true">
+            <span class="material-symbols-outlined" aria-hidden="true">business</span>
+          </div>
+          <h3>Industry Partners</h3>
+          <p>Connect with Palm students, review candidates, manage interns and contribute to their professional development.</p>
+          <ul><li>Review forwarded applications</li><li>Manage interns and evaluations</li><li>Submit final reports and feedback</li></ul>
+          <button type="button" data-login-role="partner">Partner sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+        </article>
       </div>
     </section>
 
     <section id="how-it-works" class="landing-section landing-process">
-      <div class="process-copy"><span class="landing-section-label">How it works</span><h2>A clear path from preparation to professional experience.</h2><p>The portal keeps every important step visible, so students and their supervisors always know what happens next.</p><button id="process-start" class="landing-primary" type="button">Get started <span>→</span></button></div>
+      <div class="process-copy"><span class="landing-section-label">How it works</span><h2>A clear path from preparation to professional experience.</h2><p>The portal keeps every important step visible, so students and their supervisors always know what happens next.</p><button id="process-start" class="landing-primary" type="button">Get started <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button></div>
       <div class="process-list">
         <div><span>01</span><div><strong>Build your profile</strong><p>Keep your academic details, skills and CV ready for opportunities.</p></div></div>
         <div><span>02</span><div><strong>Discover & apply</strong><p>Explore partner companies and submit a focused internship application.</p></div></div>
@@ -78,7 +106,7 @@
       </div>
     </section>
 
-    <section class="landing-final"><div><span class="landing-section-label">Ready when you are</span><h2>Your next chapter starts here.</h2><p>Sign in to continue your internship journey with Palm University College.</p></div><button id="landing-final-login" class="landing-primary light" type="button">Sign in to the portal <span>→</span></button></section>
+    <section class="landing-final"><div><span class="landing-section-label">Ready when you are</span><h2>Your next chapter starts here.</h2><p>Sign in to continue your internship journey with Palm University College.</p></div><button id="landing-final-login" class="landing-primary light" type="button">Sign in to the portal <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button></section>
 
     <footer class="landing-footer"><div class="landing-brand"><span class="landing-brand-mark"><img src="puc.png" alt="Palm University College"></span><span><strong>Palm University College</strong><small>Internship Placement Portal</small></span></div><span>© 2026 Palm University College · Internship Placement Portal</span></footer>
   </main>
@@ -99,9 +127,9 @@
         <p>Find the right placement, build real-world experience and take the next step in your career.</p>
       </div>
 
-      <div class="hero-footer">
+      <!-- <div class="hero-footer">
         <span>Learn</span><span></span><span>Experience</span><span></span><span>Grow</span>
-      </div>
+      </div> -->
     </section>
 
     <section class="auth-pane" aria-label="Sign in">

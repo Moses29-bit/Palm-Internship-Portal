@@ -30,70 +30,29 @@ const NAV = Object.fromEntries(Object.entries(MENU).map(([r, m]) => [r, m.flatMa
 const groupOf = (t, role) => { const g = MENU[role].find(x => typeof x !== 'string' && x[1].includes(t)); return g ? g[0] : null; };
 const LAB = { Resets: 'Password resets', Post: 'Post updates', Interns: 'Interns and reports', 'My Application': 'My application', Audit: 'Audit log' };
 const lab = t => t === 'Notifications' && D.me && D.me.unread ? 'Notifications · ' + D.me.unread : (LAB[t] || t);
-const ICON = { Overview: 'home', 'Placement process': 'file', Students: 'student', 'Student List': 'list', Companies: 'building', Noticeboard: 'bell', Administration: 'settings', 'My internship': 'briefcase', Explore: 'search', Account: 'user', Recruitment: 'users', 'Company page': 'building', Notifications: 'bell' };
-const ICON_PATHS = {
-  grid:'<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>',
-  workflow:'<circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="6" r="2.5"></circle><circle cx="19" cy="18" r="2.5"></circle><path d="M7.5 11.2 16.5 6.8M7.5 12.8l9 4.4"></path>',
-  users:'<path d="M16 21v-1.7a4.3 4.3 0 0 0-4.3-4.3H6.3A4.3 4.3 0 0 0 2 19.3V21"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-1.7a4.3 4.3 0 0 0-3.2-4.1M16 3.1a4 4 0 0 1 0 7.8"></path>',
-  building:'<path d="M4 21V4h11v17M15 9h5v12M8 8h3M8 12h3M8 16h3M18 13h1M18 17h1"></path>',
-  megaphone:'<path d="M3 11v2a2 2 0 0 0 2 2h2l3 4h2l-1.7-4.1L20 11V5L10.3 9.1H5a2 2 0 0 0-2 2Z"></path>',
-  settings:'<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="m19.4 15 .1.1 1.5 1.2-2 3.4-1.8-.7a7.7 7.7 0 0 1-1.7 1l-.3 1.9h-4l-.3-1.9a7.7 7.7 0 0 1-1.7-1l-1.8.7-2-3.4 1.5-1.2.1-.1a7.8 7.8 0 0 1 0-2l-.1-.1-1.5-1.2 2-3.4 1.8.7a7.7 7.7 0 0 1 1.7-1L11.2 6h4l.3 1.9a7.7 7.7 0 0 1 1.7 1l1.8-.7 2 3.4-1.5 1.2-.1.1a7.8 7.8 0 0 1 0 2Z"></path>',
-  briefcase:'<rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2"></path>',
-  search:'<circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path>',
-  user:'<circle cx="12" cy="8" r="3.5"></circle><path d="M5 21a7 7 0 0 1 14 0"></path>',
-  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"></path>',
-  arrowLeft:'<path d="M19 12H5m6-6-6 6 6 6"></path>',
-  menu:'<path d="M4 7h16M4 12h16M4 17h16"></path>',
-  arrowRight:'<path d="M5 12h14m-6-6 6 6-6 6"></path>',
-  logout:'<path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 16l4-4-4-4M9 12h9"></path>',
-  plus:'<path d="M12 5v14M5 12h14"></path>',
-  check:'<path d="m5 12 4 4L19 6"></path>',
-  close:'<path d="m6 6 12 12M18 6 6 18"></path>',
-  download:'<path d="M12 3v12m-5-5 5 5 5-5M5 21h14"></path>',
-  upload:'<path d="M12 21V9m-5 5 5-5 5 5M5 3h14"></path>',
-  save:'<path d="M5 4h11l3 3v13H5zM8 4v5h8V4M8 20v-6h8v6"></path>',
-  edit:'<path d="M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4"></path>',
-  eye:'<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle>',
-  print:'<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"></path>',
-  home:'<path d="m3 11 9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path>',
-  file:'<path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v5h5M9 12h6M9 16h6"></path>',
-  student:'<circle cx="12" cy="8" r="3"></circle><path d="M5 21a7 7 0 0 1 14 0M3 10l9-4 9 4-9 4z"></path>',
-  clock:'<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
-  star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"></path>',
-  mail:'<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path>',
-  calendar:'<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M16 3v4M8 3v4M3 10h18"></path>',
-  checkCircle:'<circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path>',
-  xCircle:'<circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path>',
-  alert:'<path d="M12 3 2.8 20h18.4z"></path><path d="M12 9v5M12 17h.01"></path>',
-  info:'<circle cx="12" cy="12" r="9"></circle><path d="M12 10v6M12 7h.01"></path>',
-  briefcaseCheck:'<rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M9 15l2 2 4-4"></path>',
-  list:'<path d="M8 6h13M8 12h13M8 18h13"></path><path d="M3 6h.01M3 12h.01M3 18h.01"></path>',
-  userPlus:'<path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="3.5"></circle><path d="M19 8v6M16 11h6"></path>',
-  history:'<path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5M12 7v5l3 2"></path>',
-  shieldCheck:'<path d="M12 3 20 6v5c0 5-3.3 8.4-8 10-4.7-1.6-8-5-8-10V6z"></path><path d="m8.5 12 2.2 2.2 4.8-5"></path>'
+const ICON = { Overview:'home', 'Placement process':'workflow', Applications:'file', Approvals:'approval', Placements:'placement', Students:'student', Attendance:'attendance', Logbook:'logbook', 'Student List':'list', Companies:'building', Noticeboard:'bell', Opportunities:'opportunity', News:'campaign', Administration:'settings', Reports:'report', Resets:'lock', Settings:'settings', Audit:'history', Notifications:'bell', 'My internship':'briefcase', 'My Application':'file', Explore:'search', Discover:'opportunity', Account:'user', Recruitment:'users', Interns:'users', 'Company page':'building', Profile:'person', Post:'campaign' };
+const MATERIAL_ICON = {
+  // Navigation
+  grid:'apps', home:'home', menu:'menu', arrowLeft:'arrow_back', arrowRight:'arrow_forward', chevronLeft:'chevron_left', chevronRight:'chevron_right',
+  search:'search', filter:'filter_list', more:'more_horiz', refresh:'refresh', dashboard:'dashboard', workflow:'account_tree',
+  // People / roles
+  user:'person', profile:'account_circle', users:'groups', student:'school', userPlus:'person_add', admin:'admin_panel_settings',
+  // Placement / applications
+  briefcase:'work', briefcaseCheck:'business_center', file:'description', folder:'folder', placement:'assignment_turned_in', approval:'approval',
+  opportunity:'travel_explore', report:'summarize', evaluation:'fact_check', application:'description', letter:'draft',
+  // Company / academic functions
+  building:'business', company:'apartment', attendance:'event_available', logbook:'menu_book', calendar:'calendar_month', calendarCheck:'event_available',
+  // Communication / alerts
+  bell:'notifications', notification:'notifications', megaphone:'campaign', mail:'mail', campaign:'campaign', alert:'warning', info:'info', help:'help',
+  // Status
+  check:'check', checkCircle:'check_circle', xCircle:'cancel', close:'close', clock:'schedule', status:'track_changes', shieldCheck:'verified_user',
+  // Account / administration
+  settings:'settings', lock:'lock', history:'history', list:'format_list_bulleted', fileSpreadsheet:'table_chart', trash:'delete',
+  logout:'logout', send:'send', link:'link', edit:'edit', eye:'visibility', print:'print', download:'download', upload:'upload', save:'save',
+  plus:'add', star:'star', moreVert:'more_vert', visibility:'visibility'
 };
-const icon = (name, cls='') => { const s=h('svg',{class:'ui-icon '+cls,viewBox:'0 0 24 24','aria-hidden':'true'}); const holder=document.createElement('span'); holder.innerHTML=ICON_PATHS[name]||ICON_PATHS.grid; s.append(...holder.childNodes); return s; };
-const iconForLabel = t => {
-  const x = String(t).toLowerCase();
-  if (x.includes('back') || x.includes('previous') || x.includes('cancel')) return 'arrowLeft';
-  if (x.includes('next') || x.includes('forward')) return 'arrowRight';
-  if (x.includes('sign out') || x.includes('logout')) return 'logout';
-  if (x.includes('download') || x.includes('export')) return 'download';
-  if (x.includes('upload')) return 'upload';
-  if (x.includes('print')) return 'print';
-  if (x.includes('save') || x.includes('update')) return 'save';
-  if (x.includes('edit') || x.includes('manage') || x.includes('password')) return 'edit';
-  if (x.includes('view') || x.includes('open') || x.includes('review')) return 'eye';
-  if (x.includes('letter')) return 'file';
-  if (x.includes('send') || x.includes('email')) return 'mail';
-  if (x.includes('copy')) return 'file';
-  if (x.includes('accept') || x.includes('approve') || x.includes('complete') || x.includes('assign') || x.includes('start')) return 'check';
-  if (x.includes('decline') || x.includes('reject') || x.includes('close') || x.includes('dismiss')) return 'close';
-  if (x.includes('add') || x.includes('create') || x.includes('register') || x.includes('publish')) return 'plus';
-  if (x.includes('search') || x.includes('find')) return 'search';
-  if (x.includes('notification')) return 'bell';
-  return null;
-};
+const icon = (name, cls='') => h('span', { class:'material-symbols-outlined ui-icon '+cls, 'aria-hidden':'true' }, MATERIAL_ICON[name] || name || 'apps');
+const iconForLabel = t => { const x = String(t).toLowerCase(); if (x.includes('back') || x.includes('previous')) return 'arrowLeft'; if (x.includes('next')) return 'arrowRight'; if (x.includes('sign out') || x.includes('logout')) return 'logout'; if (x.includes('download') || x.includes('export')) return 'download'; if (x.includes('upload')) return 'upload'; if (x.includes('print')) return 'print'; if (x.includes('save') || x.includes('update')) return 'save'; if (x.includes('edit') || x.includes('manage')) return 'edit'; if (x.includes('view') || x.includes('open') || x.includes('review')) return 'eye'; if (x.includes('approve') || x.includes('approved') || x.includes('accept')) return 'approval'; if (x.includes('complete')) return 'checkCircle'; if (x.includes('decline') || x.includes('reject') || x.includes('return')) return 'close'; if (x.includes('letter')) return 'letter'; if (x.includes('attendance')) return 'attendance'; if (x.includes('logbook')) return 'logbook'; if (x.includes('report')) return 'report'; if (x.includes('evaluation')) return 'evaluation'; if (x.includes('add') || x.includes('create') || x.includes('register')) return 'plus'; if (x.includes('search') || x.includes('find')) return 'search'; if (x.includes('notification')) return 'bell'; return null; };
 const iconButtonChildren = (t, extraIcon) => [icon(extraIcon || iconForLabel(t) || 'grid'), h('span', { class: 'button-label' }, String(t).replace(/^[↗→←↓↑]+\s*/, ''))];
 const $ = s => document.querySelector(s);
 const v = id => $('#' + id).value;
