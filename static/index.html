@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261025-icons2">
+  <link rel="stylesheet" href="style.css?v=20261027-device">
   <link rel="stylesheet" href="portal-ui.css">
 </head>
 <body>
@@ -133,44 +133,66 @@
     </section>
 
     <section class="auth-pane" aria-label="Sign in">
-      <form id="lf" class="login-form">
-        <div class="mobile-brand">
-          <img src="puc.png" alt="Palm University College">
+      <div class="device">
+        <span class="device-btn device-action" aria-hidden="true"></span>
+        <span class="device-btn device-vol-up" aria-hidden="true"></span>
+        <span class="device-btn device-vol-down" aria-hidden="true"></span>
+        <span class="device-btn device-power" aria-hidden="true"></span>
+        <span class="device-btn device-camera" aria-hidden="true"></span>
+        <div class="device-bezel">
+          <div class="device-screen">
+            <div class="device-wallpaper" aria-hidden="true"></div>
+            <header class="device-status" aria-hidden="true">
+              <time class="device-time" id="device-time" datetime="">9:41</time>
+              <span class="device-island"><span class="device-lens"></span></span>
+              <span class="device-meters">
+                <svg class="device-signal" viewBox="0 0 18 12" focusable="false"><rect x="0" y="8" width="3" height="4" rx="0.6"/><rect x="5" y="5.5" width="3" height="6.5" rx="0.6"/><rect x="10" y="3" width="3" height="9" rx="0.6"/><rect x="15" y="0" width="3" height="12" rx="0.6" opacity=".45"/></svg>
+                <svg class="device-wifi" viewBox="0 0 16 12" focusable="false"><path d="M1.2 4.2A9.4 9.4 0 0 1 8 1.6c2.6 0 4.9.9 6.8 2.6M3.4 6.6A6.2 6.2 0 0 1 8 4.8c1.8 0 3.4.6 4.6 1.8M5.8 9A3 3 0 0 1 8 8.2c.8 0 1.6.3 2.2.8"/><circle cx="8" cy="11" r="1.1"/></svg>
+                <span class="device-battery"><i></i></span>
+              </span>
+            </header>
+            <form id="lf" class="login-form">
+              <div class="mobile-brand">
+                <img src="puc.png" alt="Palm University College">
+              </div>
+              <header class="auth-heading">
+                <span class="auth-kicker">Internship Placement Portal</span>
+                <h1>Welcome back</h1>
+                <p>Sign in to continue to your account.</p>
+              </header>
+
+              <div class="auth-fields">
+                <label class="auth-field" for="un">
+                  <span>Username or student ID</span>
+                  <span class="auth-input">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
+                    <input id="un" name="username" type="text" placeholder="Enter your username or ID" required autocomplete="username">
+                  </span>
+                </label>
+                <label class="auth-field" for="pw">
+                  <span>Password</span>
+                  <span class="auth-input">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10" width="15" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
+                    <input id="pw" name="password" type="password" placeholder="Enter your password" required autocomplete="current-password">
+                  </span>
+                </label>
+              </div>
+
+              <p id="lerr" class="login-error" role="alert" aria-live="polite"></p>
+              <button class="login-submit" type="submit">
+                <span>Sign in</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
+              </button>
+
+              <footer class="auth-footer">
+                <span class="secure-icon" aria-hidden="true">✓</span>
+                <span>Your account is protected by secure sign-in.</span>
+              </footer>
+            </form>
+            <span class="device-home" aria-hidden="true"></span>
+          </div>
         </div>
-        <header class="auth-heading">
-          <span class="auth-kicker">Internship Placement Portal</span>
-          <h1>Welcome back</h1>
-          <p>Sign in to continue to your account.</p>
-        </header>
-
-        <div class="auth-fields">
-          <label class="auth-field" for="un">
-            <span>Username or student ID</span>
-            <span class="auth-input">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
-              <input id="un" name="username" type="text" placeholder="Enter your username or ID" required autocomplete="username">
-            </span>
-          </label>
-          <label class="auth-field" for="pw">
-            <span>Password</span>
-            <span class="auth-input">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10" width="15" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>
-              <input id="pw" name="password" type="password" placeholder="Enter your password" required autocomplete="current-password">
-            </span>
-          </label>
-        </div>
-
-        <p id="lerr" class="login-error" role="alert" aria-live="polite"></p>
-        <button class="login-submit" type="submit">
-          <span>Sign in</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg>
-        </button>
-
-        <footer class="auth-footer">
-          <span class="secure-icon" aria-hidden="true">✓</span>
-          <span>Your account is protected by secure sign-in.</span>
-        </footer>
-      </form>
+      </div>
     </section>
   </main>
 

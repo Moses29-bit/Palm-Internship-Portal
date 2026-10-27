@@ -107,8 +107,17 @@ async function api(path, body) {
 }
 const act = async (path, body, msg) => { try { const j = await api(path, body); toast(msg); if (j.password) { cred = j; sessionStorage.setItem('palmCred', JSON.stringify(j)); } await refresh(); if (j.password) window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {} };
 const refresh = async () => { document.body.classList.add('is-loading'); try { D = await api('/api/data'); render(); } finally { document.body.classList.remove('is-loading'); } };
+const tickDeviceClock = () => {
+  const el = document.getElementById('device-time');
+  if (!el) return;
+  const now = new Date();
+  el.dateTime = now.toISOString();
+  el.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(now);
+};
+tickDeviceClock();
+setInterval(tickDeviceClock, 15000);
 const showLanding = () => { $('#app').hidden = true; $('#login').hidden = true; $('#landing').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' }); };
-const showLogin = () => { sessionStorage.removeItem('palm'); sessionStorage.removeItem('palmCred'); cred = null; token = ''; lastTab = ''; tabHistory = []; suppressTabHistory = false; openGroups = new Set(); menuOpen = false; editingProfile = false; $('#app').hidden = true; $('#landing').hidden = true; $('#login').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' }); };
+const showLogin = () => { sessionStorage.removeItem('palm'); sessionStorage.removeItem('palmCred'); cred = null; token = ''; lastTab = ''; tabHistory = []; suppressTabHistory = false; openGroups = new Set(); menuOpen = false; editingProfile = false; $('#app').hidden = true; $('#landing').hidden = true; $('#login').hidden = false; tickDeviceClock(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
 $('#lf').addEventListener('submit', async e => {
   e.preventDefault();
