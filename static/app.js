@@ -63,6 +63,28 @@ const h = (t, a = {}, ...k) => {
   k.flat(Infinity).filter(c => c !== null && c !== false && c !== undefined).forEach(c => e.append(c));
   return e;
 };
+const PORTAL_IMAGES = {
+  hero: 'img2.jpeg',
+  studentWorkplace: 'img4.jpeg',
+  companyWorkplace: 'img1.jpeg',
+  professionalDevelopment: 'img3.jpeg'
+};
+const visualImage = (src, alt, cls = '') => h('img', {
+  class: cls,
+  src,
+  alt,
+  loading: 'lazy',
+  decoding: 'async',
+  onerror: e => { e.currentTarget.hidden = true; }
+});
+const visualHero = (src, alt, eyebrow, title, description, actionLabel, onAction) =>
+  h('section', { class: 'portal-visual visual-hero' },
+    visualImage(src, alt),
+    h('div', { class: 'visual-hero-copy' },
+      h('span', { class: 'eyebrow' }, eyebrow),
+      h('h1', {}, title),
+      h('p', {}, description),
+      h('button', { class: 'primary-action', onclick: onAction }, actionLabel)));
 const logo = () => { const i = h('img', { class: 'logo', src: 'puc.png', alt: 'Palm University College' }); i.addEventListener('error', () => i.replaceWith(h('span', { class: 'mark' }, '✦'))); return i; };
 $('#lp').append(logo());
 const toast = m => { const t = $('#toast'); t.textContent = m; t.className = 'show'; setTimeout(() => t.className = '', 3000); };
@@ -136,7 +158,8 @@ const STATUS_MSG = { SUBMITTED: 'Awaiting review by the school', FORWARDED: 'App
 const fwd = a => { const s = sel('f' + a.id, [['', 'Choose company…'], ...D.companies.map(c => [c.id, c.name])]); s.value = a.cid; const n = noteBox('Message to student (optional)'); return [s, n, pbtn('Forward', () => act('/api/review', { app: a.id, action: 'forward', cid: s.value, note: n.value }, 'Forwarded to company')), btn('Reject', () => act('/api/review', { app: a.id, action: 'reject', note: n.value }, 'Application rejected'))]; };
 const coCards = () => h('div', { class: 'grid' }, D.companies.map(c => {
   const bar = h('i'); bar.style.width = (100 * c.filled / c.capacity) + '%';
-  return h('div', { class: 'card co' }, h('b', {}, c.name), h('small', {}, c.industry), h('small', {}, c.focus), c.about ? h('p', { class: 'sm' }, c.about) : null, site(c.website), h('div', { class: 'bar' }, bar), h('span', {}, c.filled + ' / ' + c.capacity + ' interns'));
+  return h('div', { class: 'card co' },
+    h('div', { class: 'portal-visual opportunity-visual' }, visualImage(PORTAL_IMAGES.companyWorkplace, c.name + ' internship workplace')), h('b', {}, c.name), h('small', {}, c.industry), h('small', {}, c.focus), c.about ? h('p', { class: 'sm' }, c.about) : null, site(c.website), h('div', { class: 'bar' }, bar), h('span', {}, c.filled + ' / ' + c.capacity + ' interns'));
 }));
 
 async function showLetter(a, type) {
@@ -308,8 +331,7 @@ const views = {
       if (!placement && !submitted) actions.push(['Explore placements','Browse partner companies and find a placement that fits your goals.',()=>{tab='Discover';render();}]);
       if (placement === 'ACTIVE') actions.push(['Update your logbook','Record this week’s work and keep your internship history current.',()=>{tab='Logbook';render();}]);
       return [
-        h('section',{class:'welcome-block'},h('div',{},h('span',{class:'eyebrow'},'STUDENT DASHBOARD'),h('h1',{},'Welcome back, '+(D.me.name||'Student').split(' ')[0]+'.'),h('p',{},placement==='ACTIVE'?'Your internship is in progress. Keep your attendance and weekly logbook up to date.':placement?'Your placement journey is underway. Here is your latest status.':'Your internship journey starts here. Complete the next step to move forward.')),
-          h('button',{class:'primary-action',onclick:()=>{tab=placement?'My Application':'Discover';render();}}, placement?'View internship':'Find an opportunity')),
+        visualHero(PORTAL_IMAGES.hero, 'Palm students meeting with an industry partner', 'Student dashboard', 'Welcome back, '+(D.me.name||'Student').split(' ')[0]+'.', placement==='ACTIVE'?'Your internship is in progress. Keep your attendance and weekly logbook up to date.':placement?'Your placement journey is underway. Here is your latest status.':'Your internship journey starts here. Complete the next step to move forward.', placement?'View internship':'Find an opportunity',()=>{tab=placement?'My Application':'Discover';render();}),
         h('div',{class:'metric-grid'},
           h('div',{class:'metric-card feature'},h('span',{class:'metric-icon'},icon('briefcase')),h('span',{class:'metric-label'},'Internship status'),h('strong',{},placement||'Not placed'),h('small',{},D.me.company||'No company selected yet')),
           h('div',{class:'metric-card'},h('span',{class:'metric-label'},'Applications'),h('strong',{},D.applications.length),h('small',{},submitted?'One needs your attention':'No active application')),
@@ -321,7 +343,7 @@ const views = {
     }
     if (D.role === 'COMPANY') {
       const apps = D.applications.length, interns = D.placements.filter(p=>p.status!=='CANCELLED').length, active = D.placements.filter(p=>p.status==='ACTIVE').length, pending = D.applications.filter(a=>a.status==='FORWARDED').length;
-      return [h('section',{class:'welcome-block'},h('div',{},h('span',{class:'eyebrow'},'EMPLOYER DASHBOARD'),h('h1',{},'Welcome back, '+(D.me.name||'Partner')+'.'),h('p',{},'Manage your recruitment pipeline, support your interns and keep your company profile current.')),h('button',{class:'primary-action',onclick:()=>{tab=pending?'Applications':'Profile';render();}},pending?'Review applications':'Manage profile')),
+      return [visualHero(PORTAL_IMAGES.companyWorkplace, 'Industry partners presenting internship opportunities', 'Employer dashboard', 'Welcome back, '+(D.me.name||'Partner')+'.', 'Manage your recruitment pipeline, support your interns and keep your company profile current.', pending?'Review applications':'Manage profile',()=>{tab=pending?'Applications':'Profile';render();}),
         h('div',{class:'metric-grid'},[['Applications',apps,'Total applications'],['Awaiting decision',pending,'Forwarded by Palm'],['Interns',interns,'Current placements'],['Active interns',active,'Currently on internship']].map(([a,b,c])=>h('div',{class:'metric-card'},h('span',{class:'metric-label'},a),h('strong',{},b),h('small',{},c)))),
         h('section',{class:'section-block'},h('div',{class:'section-head'},h('div',{},h('h2',{},'Recruitment pipeline'),h('p',{},'The applications that need the most attention.')),h('button',{class:'text-action icon-button',onclick:()=>{tab='Applications';render();}},icon('arrowRight'),h('span',{},'Open recruitment'))), D.applications.length?D.applications.slice().reverse().slice(0,5).map(a=>h('div',{class:'activity-row'},h('span',{class:'activity-mark'},icon('users')),h('div',{class:'activity-main'},h('strong',{},a.student),h('small',{},a.program+' · '+a.date),pill(a.status)))):h('div',{class:'empty-panel'},h('strong',{},'Your pipeline is clear'),h('p',{},'Forwarded applications from Palm University will appear here.'))),
         h('section',{class:'section-block'},h('div',{class:'section-head'},h('div',{},h('h2',{},'Company presence'),h('p',{},'A complete profile helps students discover and match with your organisation.')),h('button',{class:'text-action icon-button',onclick:()=>{tab='Profile';render();}},icon('arrowRight'),h('span',{},'View profile'))), D.companies.length?coCards():h('div',{class:'empty-panel'},'Company profile not set up yet.'))
@@ -392,6 +414,7 @@ const views = {
     const pipelineNode = (label,val,i) => h('div',{class:'admin-pipeline-node'},h('div',{class:'admin-pipeline-dot '+(val?'has-data':'')},val||'0'),h('strong',{},label),h('small',{},i===0?'Intake':i===5?'Outcome':(i<3?'Review':'Placement')));
     return [
       h('section',{class:'admin-command-hero'},
+        visualImage(PORTAL_IMAGES.studentWorkplace, 'Palm student shaking hands with a workplace mentor', 'visual-hero-image'),
         h('div',{class:'admin-command-copy'},h('span',{class:'eyebrow'},'ADMIN CONTROL CENTRE'),h('h1',{},'Internship programme at a glance.'),h('p',{},'A live operational view of Palm’s internship ecosystem — what is moving, what needs attention and where students are in the journey.'),h('div',{class:'admin-hero-meta'},h('span',{},'2026 / 27 internship cycle'),h('i',{}),h('span',{},'Live programme data'))),
         h('div',{class:'admin-command-ring'},rateRing,h('div',{},h('small',{},'PLACEMENT HEALTH'),h('strong',{},placementRate+'% of students placed'),h('span',{},Math.max(0,n-placed)+' still seeking placement')))
       ),
@@ -438,7 +461,9 @@ const views = {
   },
   'My Application': () => {
     const open = D.applications.some(a => ['SUBMITTED', 'FORWARDED'].includes(a.status));
-    return [h('h1', {}, 'My internship application'), internshipCard(), deadlineNote(),
+    return [h('h1', {}, 'My internship application'),
+      h('div', { class: 'portal-visual internship-cover' }, visualImage(PORTAL_IMAGES.studentWorkplace, 'Student shaking hands with a workplace mentor')),
+      internshipCard(), deadlineNote(),
       D.me.placed || open ? null : cvCard(),
       D.me.placed || open ? null : h('h2', {}, 'Step 2: Apply to a company'),
       D.me.placed || open ? null : h('div', { class: 'card form' },
@@ -451,6 +476,12 @@ const views = {
   },
   Attendance: () => D.role === 'STUDENT'
     ? [h('h1', {}, 'Attendance'),
+       h('div', { class: 'visual-section card' },
+         h('div', { class: 'visual-section-copy' },
+           h('small', { class: 'tag' }, 'Internship attendance'),
+           h('h2', {}, 'Keep your workplace experience up to date'),
+           h('p', {}, 'Record your working hours accurately while you build practical experience.')),
+         h('div', { class: 'portal-visual visual-section-image' }, visualImage(PORTAL_IMAGES.professionalDevelopment, 'Palm students and staff sharing workplace experience'))),
        D.me.placement === 'ACTIVE'
          ? (() => { const open = D.attendance.find(w => !w.out);
              return h('div', { class: 'card' }, h('b', {}, 'Internship at ' + D.me.company),
@@ -464,6 +495,12 @@ const views = {
     D.notes.length ? D.notes.map(n => h('div', { class: 'card' + (n.read ? '' : ' cred') }, h('small', { class: 'tag' }, fmt(n.at)), h('p', {}, n.text))) : h('p', { class: 'empty' }, 'Nothing yet. Updates about applications and internships appear here.')],
   Logbook: () => D.role === 'STUDENT'
     ? [h('h1', {}, 'Weekly logbook'),
+       h('div', { class: 'visual-section card' },
+         h('div', { class: 'visual-section-copy' },
+           h('small', { class: 'tag' }, 'Professional development'),
+           h('h2', {}, 'Document your learning journey'),
+           h('p', {}, 'Capture meaningful work, lessons learned and progress from each internship week.')),
+         h('div', { class: 'portal-visual visual-section-image' }, visualImage(PORTAL_IMAGES.professionalDevelopment, 'Palm students and staff sharing workplace experience'))),
        D.me.placement === 'ACTIVE' ? h('div', { class: 'card' }, h('p', {}, 'Write a short summary of what you did this week. Your supervisor at ' + D.me.company + ' reviews it.'),
          h('label', {}, 'This week', h('textarea', { id: 'lgb', maxlength: 1500, rows: 5 })), h('div', { class: 'form' }, pbtn('Submit entry', () => act('/api/log', { body: v('lgb') }, 'Logbook entry sent'))))
          : h('p', { class: 'msg' }, 'The logbook opens once your internship is Active.'),
