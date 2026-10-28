@@ -378,10 +378,23 @@ table{width:100%;border-collapse:collapse;min-width:680px}th{text-align:left;pad
   opacity:.88;
   letter-spacing:.01em;
 }
+.lock-button{
+  border:1px solid rgba(255,255,255,.45);
+  background:rgba(255,255,255,.16);
+  color:#fff;
+  border-radius:999px;
+  padding:10px 20px;
+  font-size:.82rem;
+  font-weight:600;
+  backdrop-filter:blur(12px);
+  cursor:pointer;
+  transition:transform .18s ease, background .18s ease;
+}
+.lock-button:hover{background:rgba(255,255,255,.26);transform:translateY(-1px)}
+.lock-button:active{transform:translateY(0)}
 .lock-swipe{
   width:138px;
   height:5px;
-  border-radius:99px;
   background:rgba(255,255,255,.78);
   box-shadow:0 0 0 7px rgba(255,255,255,.14);
   animation:lock-swipe 1.9s ease-in-out infinite;
