@@ -67,7 +67,8 @@ const PORTAL_IMAGES = {
   hero: 'img2.jpeg',
   studentWorkplace: 'img4.jpeg',
   companyWorkplace: 'img1.jpeg',
-  professionalDevelopment: 'img3.jpeg'
+  professionalDevelopment: 'img3.jpeg',
+  adminOverview: 'img5.jpeg'
 };
 const visualImage = (src, alt, cls = '') => h('img', {
   class: cls,
@@ -77,6 +78,21 @@ const visualImage = (src, alt, cls = '') => h('img', {
   decoding: 'async',
   onerror: e => { e.currentTarget.hidden = true; }
 });
+const companyImage = c => {
+  const raw = (c.website || '').trim();
+  let domain = '';
+  if (raw) {
+    try {
+      const url = new URL(raw.includes('://') ? raw : 'https://' + raw);
+      domain = url.hostname.replace(/^www\./i, '');
+    } catch (e) {
+      domain = raw.replace(/^https?:\/\//i, '').split('/')[0].replace(/^www\./i, '');
+    }
+  }
+  if (domain) return 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(domain) + '&sz=128';
+  const initials = (c.name || 'Company').trim().split(/\s+/).map(w => w.charAt(0)).join('').slice(0, 2).toUpperCase() || 'CO';
+  return 'https://ui-avatars.com/api/?name=' + encodeURIComponent(initials) + '&background=0A3D2B&color=E8D39B&size=128&bold=true';
+};
 const visualHero = (src, alt, eyebrow, title, description, actionLabel, onAction) =>
   h('section', { class: 'portal-visual visual-hero' },
     visualImage(src, alt),
@@ -168,7 +184,7 @@ const fwd = a => { const s = sel('f' + a.id, [['', 'Choose company…'], ...D.co
 const coCards = () => h('div', { class: 'grid' }, D.companies.map(c => {
   const bar = h('i'); bar.style.width = (100 * c.filled / c.capacity) + '%';
   return h('div', { class: 'card co' },
-    h('div', { class: 'portal-visual opportunity-visual' }, visualImage(PORTAL_IMAGES.companyWorkplace, c.name + ' internship workplace')), h('b', {}, c.name), h('small', {}, c.industry), h('small', {}, c.focus), c.about ? h('p', { class: 'sm' }, c.about) : null, site(c.website), h('div', { class: 'bar' }, bar), h('span', {}, c.filled + ' / ' + c.capacity + ' interns'));
+    h('div', { class: 'portal-visual company-logo-visual' }, visualImage(companyImage(c), c.name + ' logo')), h('b', {}, c.name), h('small', {}, c.industry), h('small', {}, c.focus), c.about ? h('p', { class: 'sm' }, c.about) : null, site(c.website), h('div', { class: 'bar' }, bar), h('span', {}, c.filled + ' / ' + c.capacity + ' interns'));
 }));
 
 async function showLetter(a, type) {
@@ -423,7 +439,7 @@ const views = {
     const pipelineNode = (label,val,i) => h('div',{class:'admin-pipeline-node'},h('div',{class:'admin-pipeline-dot '+(val?'has-data':'')},val||'0'),h('strong',{},label),h('small',{},i===0?'Intake':i===5?'Outcome':(i<3?'Review':'Placement')));
     return [
       h('section',{class:'admin-command-hero'},
-        visualImage(PORTAL_IMAGES.studentWorkplace, 'Palm student shaking hands with a workplace mentor', 'visual-hero-image'),
+        visualImage(PORTAL_IMAGES.adminOverview, 'Palm internship programme overview', 'visual-hero-image'),
         h('div',{class:'admin-command-copy'},h('span',{class:'eyebrow'},'ADMIN CONTROL CENTRE'),h('h1',{},'Internship programme at a glance.'),h('p',{},'A live operational view of Palm’s internship ecosystem — what is moving, what needs attention and where students are in the journey.'),h('div',{class:'admin-hero-meta'},h('span',{},'2026 / 27 internship cycle'),h('i',{}),h('span',{},'Live programme data'))),
         h('div',{class:'admin-command-ring'},rateRing,h('div',{},h('small',{},'PLACEMENT HEALTH'),h('strong',{},placementRate+'% of students placed'),h('span',{},Math.max(0,n-placed)+' still seeking placement')))
       ),
