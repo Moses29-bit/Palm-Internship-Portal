@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261028-images">
+  <link rel="stylesheet" href="style.css?v=20261028-unlock">
   <link rel="stylesheet" href="portal-ui.css">
 </head>
 <body>
@@ -189,14 +189,14 @@
                 <span>Your account is protected by secure sign-in.</span>
               </footer>
             </form>
-            <div class="device-lock" id="device-lock" role="button" tabindex="0" aria-label="Unlock phone">
+            <div class="device-lock" id="device-lock" role="button" tabindex="0" aria-label="Unlock phone" onclick="if(window.unlockPhone) window.unlockPhone();">
               <div class="lock-wallpaper" aria-hidden="true"></div>
               <div class="lock-content">
                 <time class="lock-time" id="lock-time" datetime="">9:41</time>
                 <span class="lock-date" id="lock-date">Monday, 27 October</span>
               </div>
               <div class="lock-footer">
-                <span class="lock-hint">Swipe up to unlock</span>
+                <button type="button" class="lock-button" onclick="if(window.unlockPhone) window.unlockPhone();">Tap to unlock</button>
                 <span class="lock-swipe" aria-hidden="true"></span>
               </div>
             </div>
@@ -230,6 +230,8 @@
           if (input) input.focus();
         }, 820);
       };
+      window.unlockPhone = unlock;
+      window.unlockPhone = unlock;
       lock.addEventListener('click', unlock);
       lock.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); unlock(); }
