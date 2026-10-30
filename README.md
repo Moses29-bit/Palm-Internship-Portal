@@ -3,6 +3,7 @@
 ## Requirements
 
 Build and run the Java server with JDK 25 or newer and Maven 3.9 or newer. The Maven compiler targets Java 25 bytecode.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment and HTTPS/geolocation guidance, and [TEST-PLAN.md](TEST-PLAN.md) for the automated and device test procedures.
 
 ## Portal experience
 

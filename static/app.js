@@ -1,6 +1,6 @@
 'use strict';
 // Works two ways: served by the Java server itself, or opened with VS Code Live Server (API found on ports 8080-8099).
-let BASE = null, token = '', openGroups = new Set(), menuOpen = false, lastTab = '', tabHistory = [], suppressTabHistory = false, editingProfile = false;
+let BASE = null, token = '', openGroups = new Set(), menuOpen = false, lastTab = '', tabHistory = [], suppressTabHistory = false, editingProfile = false, onboardingEditStep = '', onboardingGps = null, editingCompanyLocation = false, profileGps = null, attendanceFix = null, attendanceMessage = '', attendanceMessageError = false;
 async function findApi() {
   const host = location.hostname || 'localhost';
   const ping = async b => {
@@ -20,9 +20,14 @@ async function findApi() {
 const F = (path, o = {}) => fetch(BASE + path, { ...o, headers: { ...(o.headers || {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) } });
 findApi().then(b => { BASE = b; });
 let csrf = '', D = { role: '', me: {}, students: [], companies: [], placements: [], applications: [], posts: [], resets: [], attendance: [], reports: [], notes: [], logs: [], evals: [], audit: [], staff: [], studentList: [], accessRequests: [], settings: {} }, tab = '', cred = (() => { try { return JSON.parse(sessionStorage.getItem('palmCred') || 'null'); } catch (e) { return null; } })();
+let activeCompanyEvaluation = null, evaluationAdminState = null, evaluationBuilder = null, evaluationReportState = null;
+let evaluationAdminLoading = false;
+let reportSortBy = 'name', reportDirection = 'asc', reportType = 'students';
+let attendanceFilters = { search: '', cid: '', from: '', to: '', status: '', location: '', sort: 'name', direction: 'asc' };
+let attendanceHistorySid = '';
 // Navigation: a left sidebar. A plain string is a page; [label, [pages]] is a group that opens like a drop-down.
 const MENU = {
-  ADMIN: ['Overview', ['Placement process', ['Applications', 'Approvals', 'Placements']], ['Students', ['Students', 'Attendance', 'Logbook']], 'Student List', 'Companies', ['Noticeboard', ['Opportunities', 'News']], ['Administration', ['Reports', 'Resets', 'Settings', 'Audit']], 'Notifications'],
+  ADMIN: ['Overview', ['Placement process', ['Applications', 'Approvals', 'Placements']], ['Students', ['Students', 'Attendance', 'Logbook']], 'Student List', 'Companies', ['Noticeboard', ['Opportunities', 'News']], ['Administration', ['Reports', 'Evaluations', 'Resets', 'Settings', 'Audit']], 'Notifications'],
   STUDENT: ['Overview', ['My internship', ['My Application', 'Attendance', 'Logbook']], ['Explore', ['Discover', 'Companies']], ['Noticeboard', ['Opportunities', 'News']], 'Notifications', 'Account'],
   COMPANY: ['Overview', ['Recruitment', ['Applications', 'Interns', 'Attendance', 'Logbook']], ['Company page', ['Profile', 'Post']], 'Notifications', 'Account']
 };
@@ -30,7 +35,7 @@ const NAV = Object.fromEntries(Object.entries(MENU).map(([r, m]) => [r, m.flatMa
 const groupOf = (t, role) => { const g = MENU[role].find(x => typeof x !== 'string' && x[1].includes(t)); return g ? g[0] : null; };
 const LAB = { Resets: 'Password resets', Post: 'Post updates', Interns: 'Interns and reports', 'My Application': 'My application', Audit: 'Audit log' };
 const lab = t => t === 'Notifications' && D.me && D.me.unread ? 'Notifications · ' + D.me.unread : (LAB[t] || t);
-const ICON = { Overview:'home', 'Placement process':'workflow', Applications:'file', Approvals:'approval', Placements:'placement', Students:'student', Attendance:'attendance', Logbook:'logbook', 'Student List':'list', Companies:'building', Noticeboard:'bell', Opportunities:'opportunity', News:'campaign', Administration:'settings', Reports:'report', Resets:'lock', Settings:'settings', Audit:'history', Notifications:'bell', 'My internship':'briefcase', 'My Application':'file', Explore:'search', Discover:'opportunity', Account:'user', Recruitment:'users', Interns:'users', 'Company page':'building', Profile:'person', Post:'campaign' };
+const ICON = { Overview:'home', 'Placement process':'workflow', Applications:'file', Approvals:'approval', Placements:'placement', Students:'student', Attendance:'attendance', Logbook:'logbook', 'Student List':'list', Companies:'building', Noticeboard:'bell', Opportunities:'opportunity', News:'campaign', Administration:'settings', Reports:'report', Evaluations:'evaluation', Resets:'lock', Settings:'settings', Audit:'history', Notifications:'bell', 'My internship':'briefcase', 'My Application':'file', Explore:'search', Discover:'opportunity', Account:'user', Recruitment:'users', Interns:'users', 'Company page':'building', Profile:'person', Post:'campaign' };
 const MATERIAL_ICON = {
   // Navigation
   grid:'apps', home:'home', menu:'menu', arrowLeft:'arrow_back', arrowRight:'arrow_forward', chevronLeft:'chevron_left', chevronRight:'chevron_right',
@@ -122,6 +127,86 @@ async function api(path, body) {
   return j;
 }
 const act = async (path, body, msg) => { try { const j = await api(path, body); toast(msg); if (j.password) { cred = j; sessionStorage.setItem('palmCred', JSON.stringify(j)); } await refresh(); if (j.password) window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {} };
+const openCompanyEvaluation = async sid => {
+  try {
+    const result = await api('/api/evaluation-forms');
+    if (!result.active) { toast('There is no active evaluation form. Ask the university administrator.'); return; }
+    activeCompanyEvaluation = { sid, form: result.active };
+    render();
+  } catch (e) {}
+};
+const loadEvaluationAdmin = async () => {
+  if (evaluationAdminLoading || evaluationAdminState) return;
+  evaluationAdminLoading = true;
+  try {
+    const forms = await api('/api/evaluation-forms');
+    const report = await api('/api/evaluation-report');
+    evaluationAdminState = forms;
+    evaluationReportState = report;
+  } catch (e) {
+    evaluationAdminState = { forms: [], active: null };
+    evaluationReportState = { responses: [], byStudent: [], byCompany: [], aggregate: { responses: 0, averageRating: null } };
+  } finally {
+    evaluationAdminLoading = false;
+    render();
+  }
+};
+const editEvaluationForm = form => {
+  evaluationBuilder = form ? { id: form.id, title: form.title, status: form.status,
+    questions: form.questions.map(question => ({ ...question, optionsText: (question.options || []).join('\n') })) }
+    : { id: '', title: '', status: 'DRAFT', questions: [{ prompt: '', type: 'rating', required: true, optionsText: '' }] };
+  render();
+};
+const collectEvaluationBuilder = () => {
+  if (!evaluationBuilder) return;
+  evaluationBuilder.title = ($('#evaluation-title') || {}).value || '';
+  evaluationBuilder.status = ($('#evaluation-status') || {}).value || 'DRAFT';
+  evaluationBuilder.questions = evaluationBuilder.questions.map((question, index) => ({
+    id: question.id || '', prompt: ($('#evaluation-prompt-' + index) || {}).value || '',
+    type: ($('#evaluation-type-' + index) || {}).value || 'rating',
+    required: !!($('#evaluation-required-' + index) || {}).checked,
+    optionsText: ($('#evaluation-options-' + index) || {}).value || ''
+  }));
+  return evaluationBuilder;
+};
+const updateEvaluationPreview = () => {
+  const preview = $('#evaluation-live-preview');
+  if (!preview) return;
+  const title = ($('#evaluation-title') || {}).value || 'Evaluation form preview';
+  const questions = evaluationBuilder ? evaluationBuilder.questions.map((question, index) => ({
+    prompt: ($('#evaluation-prompt-' + index) || {}).value || 'Question ' + (index + 1),
+    type: ($('#evaluation-type-' + index) || {}).value || 'rating',
+    required: !!($('#evaluation-required-' + index) || {}).checked
+  })) : [];
+  preview.replaceChildren(h('h3', {}, title), ...questions.map(question =>
+    h('p', {}, question.prompt + ' · ' + question.type.replace('_', ' ') + (question.required ? ' · required' : ' · optional'))));
+};
+const saveEvaluationBuilder = async () => {
+  const state = collectEvaluationBuilder();
+  if (!state) return;
+  const body = { id: state.id, title: state.title, status: state.status, questionCount: String(state.questions.length) };
+  state.questions.forEach((question, index) => {
+    body['q' + index + 'Prompt'] = question.prompt;
+    body['q' + index + 'Type'] = question.type;
+    body['q' + index + 'Required'] = question.required ? '1' : '0';
+    body['q' + index + 'Options'] = question.optionsText;
+  });
+  try {
+    await api('/api/evaluation-forms', body);
+    toast('Evaluation form saved');
+    evaluationBuilder = null; evaluationAdminState = null; evaluationReportState = null;
+    await loadEvaluationAdmin();
+  } catch (e) {}
+};
+const evaluationAnswersSummary = response => {
+  let answers = {};
+  try { answers = JSON.parse(response.answers || '{}'); } catch (e) { return 'Answers could not be decoded'; }
+  const form = (evaluationAdminState?.forms || []).find(item => item.id === response.formId);
+  return (form?.questions || []).map(question => {
+    const value = answers[question.id];
+    return question.prompt + ': ' + (value === null || value === undefined ? '—' : String(value));
+  }).join(' · ');
+};
 const refresh = async () => { document.body.classList.add('is-loading'); try { D = await api('/api/data'); render(); } finally { document.body.classList.remove('is-loading'); } };
 const tickDeviceClock = () => {
   const el = document.getElementById('device-time');
@@ -275,10 +360,21 @@ async function review(a, mode) {   // shows the student's CV inside the portal, 
 
 async function downloadCsv(t) {
   const from = ($('#rf') || {}).value || '', to = ($('#rt') || {}).value || '';
-  const r = await F('/api/export?type=' + t + '&from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+  const query = new URLSearchParams({ type: t, from, to, sort: reportSortBy, direction: reportDirection });
+  const r = await F('/api/export?' + query);
   if (!r.ok) return toast('Could not download the report');
-  const a = h('a', { href: URL.createObjectURL(await r.blob()), download: 'palm-' + t + '.csv' });
+  const a = h('a', { href: URL.createObjectURL(await r.blob()), download: 'palm-' + t + '-' + new Date().toISOString().slice(0, 10) + '.csv' });
   document.body.append(a); a.click(); a.remove();
+}
+
+async function printReport(t) {
+  const view = window.open('about:blank', '_blank');
+  if (!view) return toast('Allow pop-ups to open the print-friendly report');
+  const query = new URLSearchParams({ type: t, from: ($('#rf') || {}).value || '', to: ($('#rt') || {}).value || '',
+    sort: reportSortBy, direction: reportDirection, format: 'print' });
+  const r = await F('/api/export?' + query);
+  if (!r.ok) { view.close(); return toast('Could not open the print-friendly report'); }
+  view.location.href = URL.createObjectURL(await r.blob());
 }
 
 async function studentCv(s) {   // admin: open a student's CV straight from the Students tab
@@ -304,6 +400,114 @@ const fmt = s => s ? new Date(s).toLocaleString([], { dateStyle: 'medium', timeS
 const hrs = w => w.out ? ((new Date(w.out) - new Date(w.in)) / 3600000).toFixed(2) : '';
 const attTable = (list, names) => table(names ? ['Student', 'Company', 'Clock in', 'Clock out', 'Hours'] : ['Clock in', 'Clock out', 'Hours'],
   list.map(w => (names ? [w.student, w.company] : []).concat([fmt(w.in), w.out ? fmt(w.out) : (Date.now() - new Date(w.in) > 14 * 3600000 ? pill('REJECTED') : h('span', { class: 'pill ACTIVE' }, icon(STATUS_ICON.ACTIVE), h('span', {}, 'Clocked in'))), hrs(w)])));
+
+const reportView = type => {
+  const hasEvaluationReport = !!evaluationReportState
+    && (evaluationReportState.responses?.length > 0 || D.evals.length === 0);
+  const views = {
+    students: { headers: ['ID', 'Name', 'Email', 'Programme', 'Placed'], rows: D.students.map(s => ({ name: s.name, email: s.email, date: '', values: [s.id, s.name, s.email, s.program, s.placed ? 'Yes' : 'No'] })) },
+    companies: { headers: ['ID', 'Name', 'Email', 'Industry', 'Focus', 'Capacity', 'Filled'], rows: D.companies.map(c => ({ name: c.name, email: c.email, date: '', values: [c.id, c.name, c.email, c.industry, c.focus, c.capacity, c.filled] })) },
+    placements: { headers: ['Student', 'Student email', 'Company', 'Company email', 'Programme', 'Status', 'Placed on', 'Start', 'End'], rows: D.placements.map(p => ({ name: p.student, email: p.studentEmail, date: p.date, values: [p.student, p.studentEmail, p.company, p.companyEmail, p.program, p.status, p.date, p.start, p.end] })) },
+    applications: { headers: ['Ref', 'Student', 'Student email', 'Company', 'Company email', 'Programme', 'Status', 'Updated'], rows: D.applications.map(a => ({ name: a.student, email: a.studentEmail, date: a.date, values: [a.id, a.student, a.studentEmail, a.company, a.companyEmail, a.program, a.status, a.date] })) },
+    attendance: { headers: ['Student', 'Student email', 'Company', 'Company email', 'Clock in', 'Clock out', 'Hours', 'Status', 'Location verification', 'Distance (m)'], rows: D.attendance.map(w => ({ name: w.student, email: w.studentEmail, date: w.in, values: [w.student, w.studentEmail, w.company, w.companyEmail, fmt(w.in), fmt(w.out), w.hours, w.out ? 'Completed' : 'Clocked in', w.locationVerified ? 'Verified on site' : 'Failed / not verified', w.inDistance ?? ''] })) },
+    evaluations: hasEvaluationReport ? {
+      headers: ['Student', 'Student email', 'Company', 'Company email', 'Form', 'Answers', 'Submitted'],
+      rows: (evaluationReportState.responses || []).map(response => ({ name: response.student, email: response.studentEmail, date: response.date,
+        values: [response.student, response.studentEmail, response.company, response.companyEmail, response.form, evaluationAnswersSummary(response), response.date] }))
+    } : {
+      headers: ['Student', 'Student email', 'Company', 'Company email', 'Punctuality', 'Skills', 'Attitude', 'Teamwork', 'Average', 'Comment', 'Date'],
+      rows: D.evals.map(e => ({ name: e.student, email: e.studentEmail, date: e.date,
+        values: [e.student, e.studentEmail, e.company, e.companyEmail, e.punctuality, e.skills, e.attitude, e.teamwork,
+          ((e.punctuality + e.skills + e.attitude + e.teamwork) / 4).toFixed(2), e.comment, e.date] }))
+    },
+    reports: { headers: ['Student', 'Student email', 'Company', 'Company email', 'Summary', 'Date'], rows: D.reports.map(r => ({ name: r.student, email: r.studentEmail, date: r.date, values: [r.student, r.studentEmail, r.company, r.companyEmail, r.summary, r.date] })) },
+    audit: { headers: ['When', 'Who', 'Email', 'Action', 'Detail'], rows: D.audit.map(a => ({ name: a.actor, email: a.email, date: a.at, values: [fmt(a.at), a.actor, a.email, a.action, a.detail] })) }
+  };
+  const view = views[type] || views.students, from = ($('#rf') || {}).value || '', to = ($('#rt') || {}).value || '';
+  const rows = view.rows.filter(row => (!from || !row.date || row.date.slice(0, 10) >= from) && (!to || !row.date || row.date.slice(0, 10) <= to));
+  const key = reportSortBy === 'email' ? 'email' : 'name';
+  rows.sort((a, b) => String(a[key] || '').localeCompare(String(b[key] || ''), 'und', { sensitivity: 'accent' }) * (reportDirection === 'desc' ? -1 : 1));
+  return { headers: view.headers, rows };
+};
+
+const sortByNameOrEmail = (items, nameKey, emailKey) => items.slice().sort((a, b) =>
+  String(a[reportSortBy === 'email' ? emailKey : nameKey] || '').localeCompare(
+    String(b[reportSortBy === 'email' ? emailKey : nameKey] || ''), 'und', { sensitivity: 'accent' })
+  * (reportDirection === 'desc' ? -1 : 1));
+
+const selectField = (id, label, options, value) => {
+  const select = h('select', { id }, options.map(([key, text]) => h('option', { value: key }, text)));
+  select.value = value;
+  return h('label', {}, label, select);
+};
+
+const filteredAttendance = () => {
+  const f = attendanceFilters, term = f.search.trim().toLocaleLowerCase();
+  const rows = D.attendance.filter(w => (!term || [w.student, w.studentEmail, w.sid].join(' ').toLocaleLowerCase().includes(term))
+    && (!f.cid || w.cid === f.cid)
+    && (!f.from || String(w.in).slice(0, 10) >= f.from)
+    && (!f.to || String(w.in).slice(0, 10) <= f.to)
+    && (!f.status || (f.status === 'clocked_in' ? !w.out : f.status === 'completed' ? !!w.out : f.status === 'flagged' && !w.locationVerified))
+    && (!f.location || (f.location === 'verified' ? w.locationVerified : f.location === 'failed' && !w.locationVerified)));
+  const compare = (a, b) => {
+    if (f.sort === 'date') return String(a.in).localeCompare(String(b.in));
+    if (f.sort === 'hours') return Number(a.hours || 0) - Number(b.hours || 0);
+    if (f.sort === 'company') return String(a.company || '').localeCompare(String(b.company || ''), 'und', { sensitivity: 'accent' });
+    const key = f.sort === 'email' ? 'studentEmail' : 'student';
+    return String(a[key] || '').localeCompare(String(b[key] || ''), 'und', { sensitivity: 'accent' });
+  };
+  return rows.sort((a, b) => compare(a, b) * (f.direction === 'desc' ? -1 : 1));
+};
+
+async function downloadAttendance(sid = '') {
+  const f = attendanceFilters;
+  const query = new URLSearchParams({ type: 'attendance', ...(sid ? { sid, sort: 'date', direction: 'asc' } : {
+    search: f.search, cid: f.cid, from: f.from, to: f.to, status: f.status, location: f.location, sort: f.sort, direction: f.direction
+  }) });
+  const r = await F('/api/export?' + query);
+  if (!r.ok) return toast('Could not download attendance');
+  const filename = 'palm-attendance-' + (sid ? 'student' : 'filtered') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+  const a = h('a', { href: URL.createObjectURL(await r.blob()), download: filename });
+  document.body.append(a); a.click(); a.remove();
+}
+
+function attendanceAdminView() {
+  const filters = attendanceFilters, rows = filteredAttendance();
+  const hours = rows.reduce((sum, record) => sum + Number(record.hours || 0), 0);
+  const history = attendanceHistorySid ? D.attendance.filter(record => record.sid === attendanceHistorySid) : [];
+  const selectOptions = (items, getKey, getLabel, allLabel) => [[ '', allLabel ], ...items.map(item => [getKey(item), getLabel(item)])];
+  return [h('h1', {}, 'Attendance'),
+    attendanceHistorySid ? h('section', { class: 'card' },
+      pbtn('Back to attendance report', () => { attendanceHistorySid = ''; render(); }),
+      h('h2', {}, 'Attendance history · ' + (history[0]?.student || 'Student')),
+      pbtn('Download this student', () => downloadAttendance(attendanceHistorySid)),
+      table(['Clock in', 'Clock out', 'Hours', 'Company', 'Status', 'Location verification', 'Distance (m)'], history.map(w => [
+        fmt(w.in), fmt(w.out), w.hours || '—', w.company, w.out ? 'Completed' : 'Clocked in',
+        w.locationVerified ? 'Verified on site' : 'Failed / not verified', w.inDistance == null ? '—' : Number(w.inDistance).toFixed(1)
+      ]))) : null,
+    h('div', { class: 'card form', 'aria-label': 'Attendance report filters' },
+      h('label', {}, 'Search name, email or student ID', h('input', { id: 'attendance-search', type: 'search', value: filters.search })),
+      selectField('attendance-company', 'Company', selectOptions(D.companies, c => c.id, c => c.name, 'All companies'), filters.cid),
+      h('label', {}, 'From', h('input', { id: 'attendance-from', type: 'date', value: filters.from })),
+      h('label', {}, 'To', h('input', { id: 'attendance-to', type: 'date', value: filters.to })),
+      selectField('attendance-status', 'Status', [['', 'All statuses'], ['clocked_in', 'Clocked in'], ['completed', 'Completed'], ['flagged', 'Flagged']], filters.status),
+      selectField('attendance-location', 'Location check', [['', 'All checks'], ['verified', 'Verified'], ['failed', 'Failed']], filters.location),
+      selectField('attendance-sort', 'Sort by', [['name', 'Name'], ['email', 'Email'], ['date', 'Date'], ['hours', 'Hours'], ['company', 'Company']], filters.sort),
+      selectField('attendance-direction', 'Direction', [['asc', 'Ascending'], ['desc', 'Descending']], filters.direction),
+      pbtn('Apply filters', () => {
+        attendanceFilters = { search: $('#attendance-search').value, cid: $('#attendance-company').value, from: $('#attendance-from').value,
+          to: $('#attendance-to').value, status: $('#attendance-status').value, location: $('#attendance-location').value,
+          sort: $('#attendance-sort').value, direction: $('#attendance-direction').value };
+        render();
+      }),
+      pbtn('Reset', () => { attendanceFilters = { search: '', cid: '', from: '', to: '', status: '', location: '', sort: 'name', direction: 'asc' }; render(); }),
+      pbtn('Download filtered rows', () => downloadAttendance())),
+    h('p', { class: 'msg' }, rows.length + ' records · ' + hours.toFixed(2) + ' total hours'),
+    table(['Student', 'Email', 'Company', 'Clock in', 'Clock out', 'Hours', 'Status', 'Location verification', 'Distance (m)'],
+      rows.map(w => [h('button', { type: 'button', class: 'link', onclick: () => { attendanceHistorySid = w.sid; render(); } }, w.student),
+        w.studentEmail, w.company, fmt(w.in), fmt(w.out), w.hours || '—', w.out ? 'Completed' : 'Clocked in',
+        w.locationVerified ? 'Verified on site' : 'Failed / not verified', w.inDistance == null ? '—' : Number(w.inDistance).toFixed(1)]))];
+}
 
 async function uploadReport() {
   const f = $('#rpf').files[0], sid = v('rsid');
@@ -500,20 +704,100 @@ const views = {
       h('div', { id: 'letter' })];
   },
   Attendance: () => D.role === 'STUDENT'
-    ? [h('h1', {}, 'Attendance'),
-       h('div', { class: 'visual-section card' },
-         h('div', { class: 'visual-section-copy' },
-           h('small', { class: 'tag' }, 'Internship attendance'),
-           h('h2', {}, 'Keep your workplace experience up to date'),
-           h('p', {}, 'Record your working hours accurately while you build practical experience.')),
-         h('div', { class: 'portal-visual visual-section-image' }, visualImage(PORTAL_IMAGES.professionalDevelopment, 'Palm students and staff sharing workplace experience'))),
-       D.me.placement === 'ACTIVE'
-         ? (() => { const open = D.attendance.find(w => !w.out);
-             return h('div', { class: 'card' }, h('b', {}, 'Internship at ' + D.me.company),
-               h('p', {}, open ? 'You clocked in at ' + fmt(open.in) + '. Remember to clock out when you finish.' : 'You are not clocked in.'),
-               h('div', { class: 'form' }, open ? pbtn('Clock out', () => act('/api/clock', { action: 'out' }, 'Clocked out')) : pbtn('Clock in', () => act('/api/clock', { action: 'in' }, 'Clocked in')))); })()
-         : h('p', { class: 'msg' }, D.me.placement === 'PENDING' ? 'Your placement is approved. Attendance opens as soon as your company or the school marks your internship as started.' : 'Attendance is available once your internship has been approved and has started.'),
-       h('h2', {}, 'My records'), attTable(D.attendance, false)]
+    ? (() => {
+      const open = D.attendance.find(w => !w.out);
+      const workplace = D.companies.find(c => c.name === D.me.company);
+      const hasWorkplace = workplace && workplace.locationLat !== null && workplace.locationLat !== undefined
+        && workplace.locationLng !== null && workplace.locationLng !== undefined
+        && Number.isFinite(Number(workplace.locationLat)) && Number.isFinite(Number(workplace.locationLng));
+      const status = (text, error = false) => {
+        attendanceMessage = text;
+        attendanceMessageError = error;
+        const node = $('#attendance-location-status');
+        if (node) { node.textContent = text; node.className = error ? 'msg error' : 'msg'; }
+      };
+      const locate = (clockingOut = false) => {
+        attendanceFix = null;
+        status('Requesting a fresh, high-accuracy location…');
+        if (!navigator.geolocation) { status('This browser does not support location. Check device compatibility.', true); return; }
+        navigator.geolocation.getCurrentPosition(position => {
+          const fix = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy,
+            timestamp: position.timestamp || Date.now() };
+          if (!Number.isFinite(fix.lat) || !Number.isFinite(fix.lng) || fix.lat < -90 || fix.lat > 90 || fix.lng < -180 || fix.lng > 180) {
+            status('The browser returned invalid coordinates. Try again.', true); return;
+          }
+          if (Date.now() - fix.timestamp > 60000) { status('That location reading is older than 60 seconds. Set your location again.', true); return; }
+          if (clockingOut) {
+            attendanceFix = fix;
+            status('Clock-out location recorded: accuracy ±' + Math.round(fix.accuracy) + ' m. Distance never blocks clock-out.');
+            render();
+            return;
+          }
+          if (!hasWorkplace) { status('Your company has not set a workplace location. Ask your company to add it in Profile.', true); return; }
+          if (!Number.isFinite(fix.accuracy) || fix.accuracy > 100) {
+            status('Location accuracy is ±' + Math.round(fix.accuracy || 0) + ' m; it must be 100 m or better. Move to an open area and try again.', true); return;
+          }
+          const rad = value => value * Math.PI / 180;
+          const dLat = rad(Number(workplace.locationLat) - fix.lat), dLng = rad(Number(workplace.locationLng) - fix.lng);
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(fix.lat)) * Math.cos(rad(Number(workplace.locationLat))) * Math.sin(dLng / 2) ** 2;
+          fix.distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          fix.allowed = fix.distance <= Number(D.settings.geofenceMeters || 100);
+          attendanceFix = fix;
+          status('Distance to workplace: ' + Math.round(fix.distance) + ' m · accuracy ±' + Math.round(fix.accuracy)
+            + ' m. ' + (fix.allowed ? 'Location verified; you can clock in.' : 'You are outside the ' + (D.settings.geofenceMeters || 100) + ' m clock-in area.'));
+          render();
+        }, error => {
+          const message = error.code === 1 ? 'Location permission was denied. Allow location access in browser settings and try again.'
+            : error.code === 3 ? 'Location request timed out. Check device location settings and try again.'
+            : 'Could not read your location. Check device location settings and try again.';
+          status(message, true);
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+      };
+      const clockIn = async () => {
+        if (!attendanceFix || !attendanceFix.allowed) { status('Set a fresh, accurate location within the geofence before clocking in.', true); return; }
+        try {
+          await api('/api/clock', { action: 'in', lat: String(attendanceFix.lat), lng: String(attendanceFix.lng),
+            accuracy: String(attendanceFix.accuracy), timestamp: String(attendanceFix.timestamp) });
+          attendanceFix = null; toast('Clocked in'); await refresh();
+        } catch (e) {}
+      };
+      const clockOut = async (withoutLocation = false) => {
+        const fix = withoutLocation ? null : attendanceFix;
+        try {
+          await api('/api/clock', { action: 'out', ...(fix ? { lat: String(fix.lat), lng: String(fix.lng),
+            accuracy: String(fix.accuracy), timestamp: String(fix.timestamp) } : {}) });
+          attendanceFix = null; toast('Clocked out'); await refresh();
+        } catch (e) {}
+      };
+      return [h('h1', {}, 'Attendance'),
+        h('div', { class: 'visual-section card' },
+          h('div', { class: 'visual-section-copy' },
+            h('small', { class: 'tag' }, 'Internship attendance'),
+            h('h2', {}, 'Keep your workplace experience up to date'),
+            h('p', {}, 'Record your working hours accurately while you build practical experience.')),
+          h('div', { class: 'portal-visual visual-section-image' }, visualImage(PORTAL_IMAGES.professionalDevelopment, 'Palm students and staff sharing workplace experience'))),
+        D.me.placement === 'ACTIVE'
+          ? h('section', { class: 'card attendance-location', 'aria-labelledby': 'attendance-clock-heading' },
+            h('h2', { id: 'attendance-clock-heading' }, 'Internship at ' + D.me.company),
+            h('p', {}, open ? 'You clocked in at ' + fmt(open.in) + '. Remember to clock out when you finish.' : 'You are not clocked in.'),
+            !open ? h('p', { class: 'privacy-notice' }, 'Location is used only to verify that clock-in is within 100 m of your workplace. It is not tracked continuously. Coordinates are available only to the university for attendance audit.') : null,
+            !hasWorkplace ? h('p', { class: 'msg error' }, 'Your company has not set a workplace location. Ask them to add it in Profile.') : null,
+            h('p', { id: 'attendance-location-status', class: attendanceMessageError ? 'msg error' : 'msg', role: 'status', 'aria-live': 'polite' }, attendanceMessage),
+            h('div', { class: 'form' }, open
+              ? [h('button', { type: 'button', class: 'link icon-button', onclick: () => locate(true) }, ...iconButtonChildren('Set clock-out location')),
+                attendanceFix ? pbtn('Clock out', () => clockOut()) : null,
+                pbtn('Clock out without location', () => clockOut(true))]
+              : [pbtn('Set my location', () => {
+                  if (!hasWorkplace) {
+                    status('The company location is missing. Requesting a setup from the company and university…', true);
+                    api('/api/clock', { action: 'in' }).catch(() => status('The company and university have been notified. Ask the company to set its workplace location.', true));
+                  } else locate(false);
+                }),
+                attendanceFix && attendanceFix.allowed ? pbtn('Clock in', clockIn) : null]))
+          : h('p', { class: 'msg' }, D.me.placement === 'PENDING' ? 'Your placement is approved. Attendance opens as soon as your company or the school marks your internship as started.' : 'Attendance is available once your internship has been approved and has started.'),
+        h('h2', {}, 'My records'), attTable(D.attendance, false)];
+    })()
+    : D.role === 'ADMIN' ? attendanceAdminView()
     : [h('h1', {}, 'Attendance'), h('p', {}, D.attendance.filter(w => !w.out).length + ' intern(s) currently clocked in. Times come from the server clock.'), attTable(D.attendance, true)],
   Notifications: () => [h('h1', {}, 'Notifications'),
     D.me.unread ? h('div', { class: 'form' }, pbtn('Mark all as read', () => act('/api/notesread', {}, 'All marked as read'))) : null,
@@ -536,22 +820,60 @@ const views = {
   Settings: () => { const s = D.settings; return [h('h1', {}, 'Settings'),
     h('div', { class: 'card' }, h('h2', {}, 'Applications and data'),
       h('div', { class: 'form' }, field('dl', 'Application deadline (empty = none)', 'date', '', s.deadline), field('rd', 'Keep CV files for (days)', 'number', '730', s.retentionDays),
-        pbtn('Save settings', () => act('/api/settings', { deadline: v('dl'), retentionDays: v('rd') }, 'Settings saved'))),
+        field('gm', 'Attendance geofence (metres)', 'number', '100', s.geofenceMeters || '100'),
+        pbtn('Save settings', () => act('/api/settings', { deadline: v('dl'), retentionDays: v('rd'), geofenceMeters: v('gm') }, 'Settings saved'))),
       h('p', { class: 'sm' }, 'Server: ' + (s.production ? 'production mode' : 'development mode') + '. Email sending is ' + (s.mail ? 'ON: verification codes, reset codes and notifications are emailed.' : 'OFF: set the SMTP settings so students can verify their email.'))),
     h('div', { class: 'card' }, h('h2', {}, 'Student List'),
       h('p', {}, s.registerCount ? 'Only the ' + s.registerCount + ' students on the approved list can sign up.' : 'No approved student list is loaded. Public student registration is closed until the list is populated.'),
       h('button', { class: 'icon-button', onclick: () => { tab = 'Student List'; render(); } }, ...iconButtonChildren('Manage Student List', 'list'))),
     h('div', { class: 'card' }, h('h2', {}, 'School staff'), h('p', { class: 'sm' }, 'Staff accounts: ' + D.staff.join(', ')),
       h('div', { class: 'form' }, field('stf', 'Staff email', 'email', 'name@palm.edu.gh'), pbtn('Add staff member', () => act('/api/staff', { email: v('stf') }, 'Staff account created'))))]; },
-  Audit: () => [h('h1', {}, 'Audit log'), h('p', {}, 'Who did what, newest first (the latest 300 entries). Download the whole log as CSV.'),
-    h('div', { class: 'form' }, pbtn('⬇ Audit log (CSV)', () => downloadCsv('audit'))),
-    table(['When', 'Who', 'Action', 'Detail'], D.audit.map(a => [fmt(a.at), a.actor, a.action, a.detail]))],
+  Audit: () => [h('h1', {}, 'Audit log'), h('p', {}, 'Who did what (the latest 300 entries). The selected name/email ordering is also used for downloads.'),
+    h('div', { class: 'form' },
+      selectField('audit-sort', 'Sort by', [['name', 'Name'], ['email', 'Email']], reportSortBy),
+      selectField('audit-direction', 'Direction', [['asc', 'Ascending'], ['desc', 'Descending']], reportDirection),
+      pbtn('Apply sort', () => { reportSortBy = $('#audit-sort').value; reportDirection = $('#audit-direction').value; render(); }),
+      pbtn('Download audit CSV', () => downloadCsv('audit')), pbtn('Print / Save as PDF', () => printReport('audit'))),
+    table(['When', 'Who', 'Email', 'Action', 'Detail'], sortByNameOrEmail(D.audit, 'actor', 'email').map(a => [fmt(a.at), a.actor, a.email, a.action, a.detail]))],
   Opportunities: () => feed('AD', 'Internship opportunities', 'Openings advertised by partner companies.'),
   News: () => feed('UPDATE', 'Company news', 'Updates, progress and milestones shared by partner companies.'),
   Discover: () => [h('h1', {}, 'Discover companies'),
     h('div', { class: 'card form' }, field('sq', 'Search for a company or industry', 'text', 'e.g. software, banking, agriculture'), h('button', { class: 'icon-button', onclick: runSearch }, ...iconButtonChildren('Search'))), h('div', { id: 'sr' })],
   Profile: () => {
     const c = D.companies[0] || {}, filled = !!(c.about || c.website || c.email || c.focus || c.industry);
+    const locateProfile = () => {
+      const out = $('#profile-location-status');
+      if (out) out.textContent = 'Requesting a fresh, high-accuracy location…';
+      if (!navigator.geolocation) { if (out) out.textContent = 'Location is not supported. Paste a Google Maps link or coordinates.'; return; }
+      navigator.geolocation.getCurrentPosition(position => {
+        profileGps = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy };
+        if (out) out.textContent = 'Position received: ' + profileGps.lat.toFixed(6) + ', ' + profileGps.lng.toFixed(6)
+          + ' · accuracy ±' + Math.round(profileGps.accuracy) + ' m.';
+      }, error => {
+        if (out) out.textContent = error.code === 1 ? 'Location permission was denied. Allow access or paste coordinates.'
+          : error.code === 3 ? 'Location request timed out. Try again or paste coordinates.' : 'Could not read the location. Check device settings.';
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    };
+    const saveLocation = async () => {
+      const payload = { address: v('profile-location-address'), location: v('profile-location-text') };
+      if (profileGps) { payload.lat = String(profileGps.lat); payload.lng = String(profileGps.lng); }
+      try {
+        await api('/api/company/location', payload);
+        profileGps = null; editingCompanyLocation = false; toast('Workplace location saved'); await refresh();
+      } catch (e) {}
+    };
+    const locationCard = () => h('div', { class: 'card' }, h('h2', {}, 'Workplace location'),
+      h('p', {}, c.locationAddress || 'No workplace address is set.'),
+      c.locationLat !== null && c.locationLat !== undefined ? h('p', { class: 'sm' }, c.locationLat + ', ' + c.locationLng) : h('p', { class: 'sm' }, 'No coordinates saved.'),
+      c.mapsLink ? h('a', { href: c.mapsLink, target: '_blank', rel: 'noopener noreferrer' }, 'Open in Google Maps') : null,
+      editingCompanyLocation ? h('div', { class: 'form' },
+        field('profile-location-address', 'Workplace address', 'text', '', c.locationAddress),
+        field('profile-location-text', 'Google Maps link or latitude,longitude', 'text', 'Paste a Maps link or coordinates', c.mapsLink || ''),
+        h('button', { type: 'button', class: 'link icon-button', onclick: locateProfile }, ...iconButtonChildren('Use my current location')),
+        h('p', { id: 'profile-location-status', class: 'msg', role: 'status', 'aria-live': 'polite' }),
+        pbtn('Save workplace location', saveLocation),
+        btn('Cancel', () => { editingCompanyLocation = false; profileGps = null; render(); }))
+        : pbtn('Edit workplace location', () => { editingCompanyLocation = true; render(); }));
     if (filled && !editingProfile) return [h('h1', {}, 'Company profile'),
       h('div', { class: 'card' }, h('small', { class: 'tag' }, 'Current profile'), h('h2', {}, c.name),
         c.industry ? h('p', {}, h('b', {}, 'Industry: '), c.industry) : null,
@@ -560,6 +882,7 @@ const views = {
         site(c.website), c.email ? h('p', { class: 'sm' }, 'Contact: ' + c.email) : null,
         h('p', { class: 'sm' }, c.filled + ' of ' + c.capacity + ' intern places filled'),
         h('div', { class: 'form' }, pbtn('Edit profile', () => { editingProfile = true; render(); }))),
+      locationCard(),
       h('p', { class: 'sm' }, 'Students see this profile under Companies and Discover, and the AI match reads it. You can edit it at any time.')];
     const save = async () => { try { await api('/api/profile', { name: v('pn'), industry: v('pi'), focus: v('pf'), website: v('pw2'), email: v('pe'), about: v('pa') }); toast('Profile saved'); editingProfile = false; await refresh(); } catch (e) {} };
     return [h('h1', {}, filled ? 'Edit company profile' : 'Set up your company profile'),
@@ -567,6 +890,7 @@ const views = {
         field('pw2', 'Website', 'url', 'https://', c.website), field('pe', 'Contact email', 'email', '', c.email),
         h('label', {}, 'About your business', h('textarea', { id: 'pa', maxlength: 600, rows: 4 }, c.about || '')),
         h('button', { class: 'icon-button', onclick: save }, ...iconButtonChildren('Save profile'))),
+      locationCard(),
       filled ? btn('← Cancel and go back to the profile', () => { editingProfile = false; render(); }) : null,
       h('p', { class: 'sm' }, 'The AI match reads this profile, so a fuller profile means better matches for your business.')];
   },
@@ -688,11 +1012,41 @@ const views = {
         h('li', {}, 'Every list change and access decision is written to the audit log.')))
     ];
   },
-  Companies: () => [h('h1', {}, 'Partner companies'),
-    D.role === 'ADMIN' ? h('div', { class: 'card form' }, field('cn', 'Company name'), field('ci', 'Industry'), field('cf', 'Focus areas', 'text', 'e.g. software, networks, data'), field('cc', 'Intern capacity', 'number', '5'), field('ce', 'Contact email (to send the login)', 'email', 'hr@company.com'),
-      h('button', { class: 'icon-button', onclick: () => act('/api/company', { name: v('cn'), industry: v('ci'), focus: v('cf'), capacity: v('cc'), email: v('ce') }, 'Company registered') }, ...iconButtonChildren('Register company'))) : null,
-    D.role === 'ADMIN' ? accountsTable() : null,
-    coCards()],
+  Companies: () => {
+    const admin = D.role === 'ADMIN';
+    const onboardingCards = admin ? D.companies.map(c => h('section', { class: 'card company-onboarding-card' },
+      h('div', { class: 'section-head' }, h('div', {}, h('h2', {}, c.name), h('p', { class: 'sm' }, c.email || 'No contact email'))),
+      h('div', { class: 'onboarding-chips' },
+        pill(c.passwordChanged ? 'Password changed' : 'Password pending'),
+        pill(c.profileComplete ? 'Profile complete' : 'Profile incomplete'),
+        pill(c.locationLat !== null && c.locationLat !== undefined ? 'Location set' : 'Location pending')),
+      h('h3', {}, 'Profile preview'),
+      h('p', {}, 'Industry: ' + (c.industry || 'Not set')),
+      h('p', {}, c.about || 'No company description.'),
+      h('h3', {}, 'Workplace'),
+      h('p', {}, c.locationAddress || 'No workplace address set.'),
+      c.mapsLink ? h('a', { href: c.mapsLink, target: '_blank', rel: 'noopener noreferrer' }, 'Open in Google Maps') : null,
+      editingCompanyLocation === c.id ? h('div', { class: 'form' },
+        field('company-location-address', 'Workplace address', 'text', 'Street, city, region', c.locationAddress),
+        field('company-location-coordinates', 'Google Maps link or latitude,longitude', 'text',
+          'Paste a Google Maps link or coordinates', c.mapsLink || ''),
+        pbtn('Save location', () => act('/api/company/location', {
+          cid: c.id, address: v('company-location-address'), location: v('company-location-coordinates')
+        }, 'Company location updated')),
+        btn('Cancel', () => { editingCompanyLocation = false; render(); })) : null,
+      h('div', { class: 'form' },
+        btn('Edit location', () => { editingCompanyLocation = c.id; render(); }),
+        btn('Reset onboarding', () => {
+          if (confirm('Reset onboarding and issue a new temporary password for ' + c.name + '?'))
+            act('/api/onboarding/reset', { cid: c.id }, 'Onboarding reset. Share the temporary password securely.');
+        }))
+    )) : null;
+    return [h('h1', {}, 'Partner companies'),
+      admin ? h('div', { class: 'card form' }, field('cn', 'Company name'), field('ci', 'Industry'), field('cf', 'Focus areas', 'text', 'e.g. software, networks, data'), field('cc', 'Intern capacity', 'number', '5'), field('ce', 'Contact email (to send the login)', 'email', 'hr@company.com'),
+        h('button', { class: 'icon-button', onclick: () => act('/api/company', { name: v('cn'), industry: v('ci'), focus: v('cf'), capacity: v('cc'), email: v('ce') }, 'Company registered') }, ...iconButtonChildren('Register company'))) : null,
+      admin ? accountsTable() : null,
+      onboardingCards, coCards()];
+  },
   Placements: () => { const mine = D.placements.filter(p => p.status !== 'CANCELLED'); return [h('h1', {}, 'Placements'),
     h('div', { class: 'card form' },
       h('label', {}, 'Student', sel('as', D.students.filter(s => !s.placed).map(s => [s.id, s.name]))),
@@ -700,30 +1054,150 @@ const views = {
       h('button', { class: 'icon-button', onclick: () => act('/api/assign', { sid: v('as'), cid: v('ac') }, 'Placement created') }, ...iconButtonChildren('Assign directly'))),
     mine.length ? datesForm(mine) : null,
     table(['Student', 'Programme', 'Company', 'Placed', 'Start', 'End', 'Status'], D.placements.slice().reverse().map(r => [r.student, r.program, r.company, r.date, r.start || '-', r.end || '-', r.status === 'CANCELLED' ? pill(r.status) : stSel(r)]))]; },
-  Interns: () => { const mine = D.placements.filter(p => p.status !== 'CANCELLED'), rep = r => D.reports.find(k => k.sid === r.sid && k.cid === r.cid), ev = r => D.evals.find(k => k.sid === r.sid && k.cid === r.cid);
-    const rate = id => h('label', {}, id[0].toUpperCase() + id.slice(1), sel('ev-' + id, [[5, '5 · Excellent'], [4, '4 · Good'], [3, '3 · Satisfactory'], [2, '2 · Needs work'], [1, '1 · Poor']]));
+  Interns: () => {
+    const mine = D.placements.filter(p => p.status !== 'CANCELLED');
+    const rep = r => D.reports.find(k => k.sid === r.sid && k.cid === r.cid);
+    const ev = r => D.evals.find(k => k.sid === r.sid && k.cid === r.cid);
+    const evaluationPanel = activeCompanyEvaluation ? (() => {
+      const { sid, form } = activeCompanyEvaluation;
+      const questions = (form.questions || []).map(question => {
+        const id = 'evaluation-answer-' + question.id, required = question.required ? ' · required' : '';
+        if (question.type === 'rating') return h('label', {}, question.prompt + required,
+          sel(id, [['', 'Choose a rating'], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']]));
+        if (question.type === 'short_text') return h('label', {}, question.prompt + required,
+          h('input', { id, maxlength: 200, ...(question.required ? { required: '' } : {}) }));
+        if (question.type === 'long_text') return h('label', {}, question.prompt + required,
+          h('textarea', { id, maxlength: 2000, rows: 4, ...(question.required ? { required: '' } : {}) }));
+        if (question.type === 'single_choice') return h('label', {}, question.prompt + required,
+          h('select', { id, ...(question.required ? { required: '' } : {}) }, [['', 'Choose an option'], ...(question.options || []).map(option => [option, option])].map(([value, label]) => h('option', { value }, label))));
+        return h('label', {}, question.prompt + required,
+          h('select', { id, ...(question.required ? { required: '' } : {}) }, [['', 'Choose an answer'], ['Yes', 'Yes'], ['No', 'No']].map(([value, label]) => h('option', { value }, label))));
+      });
+      return h('section', { class: 'card form', 'aria-labelledby': 'company-evaluation-title' },
+        h('h2', { id: 'company-evaluation-title' }, form.title + ' · ' + (D.placements.find(p => p.sid === sid)?.student || 'Intern')),
+        ...questions,
+        pbtn('Submit evaluation', async () => {
+          const answers = { sid, formId: form.id };
+          for (const question of form.questions || []) answers['a_' + question.id] = v('evaluation-answer-' + question.id);
+          try {
+            await api('/api/evaluation-submit', answers);
+            activeCompanyEvaluation = null; toast('Evaluation submitted and locked'); await refresh();
+          } catch (e) {}
+        }),
+        btn('Cancel', () => { activeCompanyEvaluation = null; render(); }));
+    })() : null;
     return [h('h1', {}, 'Our interns'),
       mine.length ? datesForm(mine) : null,
       mine.length ? h('div', { class: 'card form' }, h('label', {}, 'Intern', sel('rsid', mine.map(p => [p.sid, p.student]))),
         field('rsm', 'Summary of the report (optional)', 'text', 'e.g. Excellent performance, recommended for hire'),
         h('label', {}, 'Final report on the intern (PDF, max 5 MB)', h('input', { id: 'rpf', type: 'file', accept: '.pdf,application/pdf' })),
         h('button', { class: 'icon-button', onclick: uploadReport }, ...iconButtonChildren('Upload final report'))) : null,
-      mine.length ? h('div', { class: 'card' }, h('h2', {}, 'End-of-internship evaluation'),
-        h('div', { class: 'form' }, h('label', {}, 'Intern', sel('evsid', mine.map(p => [p.sid, p.student]))), ['punctuality', 'skills', 'attitude', 'teamwork'].map(rate),
-          h('label', {}, 'Comment', h('textarea', { id: 'evc', rows: 2, maxlength: 500 })),
-          pbtn('Save evaluation', () => act('/api/eval', { sid: v('evsid'), punctuality: v('ev-punctuality'), skills: v('ev-skills'), attitude: v('ev-attitude'), teamwork: v('ev-teamwork'), comment: v('evc') }, 'Evaluation saved')))) : null,
-      table(['Student', 'Start', 'End', 'Status', 'Evaluation', 'Final report', ''], D.placements.slice().reverse().map(r => [r.student, r.start || '-', r.end || '-', pill(r.status),
-        ev(r) ? [icon('checkCircle'), ev(r).date] : 'not yet', rep(r) ? [icon('checkCircle'), rep(r).date, btn('Download', () => reportAct(rep(r), 'download'))] : 'not yet',
-        [r.status === 'PENDING' ? btn('Mark as started', () => act('/api/start', { sid: r.sid }, 'Internship marked as started')) : null,
-         r.status === 'ACTIVE' ? btn('Complete internship', () => { if (confirm('Mark this internship as completed?')) act('/api/complete', { sid: r.sid }, 'Internship completed'); }) : null]]))]; },
-  Reports: () => [h('h1', {}, 'Reports'), h('p', {}, 'Download any report as a CSV file (opens in Excel). The dates narrow the placements, applications, attendance and evaluations reports.'),
-    h('div', { class: 'card form' }, field('rf', 'From', 'date'), field('rt', 'To', 'date'), ['students', 'companies', 'placements', 'applications', 'attendance', 'evaluations'].map(t => pbtn('⬇ ' + t[0].toUpperCase() + t.slice(1), () => downloadCsv(t)))),
-    h('h2', {}, 'Evaluations by companies'),
-    table(['Student', 'Company', 'Punctuality', 'Skills', 'Attitude', 'Teamwork', 'Average', 'Comment'], D.evals.map(e => [e.student, e.company, e.punctuality, e.skills, e.attitude, e.teamwork, ((e.punctuality + e.skills + e.attitude + e.teamwork) / 4).toFixed(1), e.comment || '-'])),
-    h('h2', {}, 'Final reports from companies'), h('p', {}, 'Reports on each intern, uploaded by the company. View, download or print them.'),
-    h('div', { id: 'review' }),
-    table(['Student', 'Company', 'Summary', 'Date', ''], D.reports.map(k => [k.student, k.company, k.summary || '-', k.date,
-      [btn('View', () => reportAct(k, 'view')), btn('Download', () => reportAct(k, 'download')), btn('Print', () => reportAct(k, 'print'))]]))]
+      evaluationPanel,
+      table(['Student', 'Start', 'End', 'Status', 'Evaluation', 'Final report', ''], D.placements.slice().reverse().map(r => {
+        const evaluation = ev(r), eligible = r.status === 'COMPLETED' || (r.end && r.end <= new Date().toISOString().slice(0, 10));
+        return [r.student, r.start || '-', r.end || '-', pill(r.status),
+          evaluation ? 'Submitted' : 'Pending',
+          rep(r) ? [icon('checkCircle'), rep(r).date, btn('Download', () => reportAct(rep(r), 'download'))] : 'not yet',
+          [!evaluation && eligible ? btn('Evaluate', () => openCompanyEvaluation(r.sid)) : null,
+           r.status === 'PENDING' ? btn('Mark as started', () => act('/api/start', { sid: r.sid }, 'Internship marked as started')) : null,
+           r.status === 'ACTIVE' ? btn('Complete internship', () => { if (confirm('Mark this internship as completed?')) act('/api/complete', { sid: r.sid }, 'Internship completed'); }) : null]];
+      }))];
+  },
+  Evaluations: () => {
+    if (!evaluationAdminState) {
+      if (!evaluationAdminLoading) loadEvaluationAdmin();
+      return [h('h1', {}, 'Evaluations'), h('p', { class: 'msg', role: 'status' }, 'Loading evaluation forms and reports…')];
+    }
+    const forms = evaluationAdminState.forms || [];
+    const typeOptions = [['rating', 'Rating (1–5)'], ['short_text', 'Short text'], ['long_text', 'Long text'], ['single_choice', 'Single choice'], ['yes_no', 'Yes / No']];
+    const editor = evaluationBuilder ? (() => {
+      const questionEditor = evaluationBuilder.questions.map((question, index) =>
+        h('section', { class: 'card' },
+          h('h3', {}, 'Question ' + (index + 1)),
+          h('label', {}, 'Prompt', h('input', { id: 'evaluation-prompt-' + index, maxlength: 300, value: question.prompt, oninput: updateEvaluationPreview })),
+          h('label', {}, 'Question type', h('select', { id: 'evaluation-type-' + index, onchange: updateEvaluationPreview },
+            typeOptions.map(([value, label]) => h('option', value === question.type ? { value, selected: '' } : { value }, label)))),
+          h('label', { class: 'chk' }, h('input', { id: 'evaluation-required-' + index, type: 'checkbox',
+            ...(question.required ? { checked: '' } : {}), onchange: updateEvaluationPreview }), 'Required'),
+          h('label', {}, 'Choice options (one per line; single choice only)',
+            h('textarea', { id: 'evaluation-options-' + index, maxlength: 2000, rows: 3, oninput: updateEvaluationPreview }, question.optionsText || '')),
+          evaluationBuilder.questions.length > 1 ? btn('Remove question', () => {
+            collectEvaluationBuilder();
+            evaluationBuilder.questions.splice(index, 1);
+            render();
+          }) : null));
+      const previewQuestions = evaluationBuilder.questions.map((question, index) =>
+        h('p', {}, (question.prompt || 'Question ' + (index + 1)) + ' · '
+          + question.type.replace('_', ' ') + (question.required ? ' · required' : ' · optional')));
+      return h('section', { class: 'card evaluation-builder' },
+        h('h2', {}, evaluationBuilder.id ? 'Edit evaluation form' : 'Create evaluation form'),
+        h('div', { class: 'form' },
+          h('label', {}, 'Form title', h('input', { id: 'evaluation-title', maxlength: 100, value: evaluationBuilder.title, oninput: updateEvaluationPreview })),
+          h('label', {}, 'Status', h('select', { id: 'evaluation-status', onchange: updateEvaluationPreview },
+            [['DRAFT', 'Draft'], ['ACTIVE', 'Active']].map(([value, label]) => h('option',
+              value === evaluationBuilder.status ? { value, selected: '' } : { value }, label)))),
+          h('div', { class: 'evaluation-question-editor' }, questionEditor),
+          h('div', { class: 'form' },
+            btn('Add question', () => { collectEvaluationBuilder(); evaluationBuilder.questions.push({ prompt: '', type: 'short_text', required: false, optionsText: '' }); render(); }),
+            pbtn('Save form', saveEvaluationBuilder),
+            btn('Cancel', () => { evaluationBuilder = null; render(); }))),
+        h('section', { id: 'evaluation-live-preview', class: 'evaluation-preview', 'aria-live': 'polite' },
+          h('h3', {}, evaluationBuilder.title || 'Evaluation form preview'),
+          ...previewQuestions));
+    })() : null;
+    const formsTable = table(['Form', 'Status', 'Responses', 'Actions'], forms.map(form => [form.title, pill(form.status), form.responses,
+      [form.responses === 0 && form.status !== 'ARCHIVED' ? btn('Edit', () => editEvaluationForm(form)) : null,
+        btn('Duplicate', async () => {
+          try { await api('/api/evaluation-forms/duplicate', { id: form.id }); evaluationAdminState = null; evaluationReportState = null; await loadEvaluationAdmin(); }
+          catch (e) {}
+        }),
+        form.status !== 'ARCHIVED' ? btn('Archive', async () => {
+          try { await api('/api/evaluation-forms/archive', { id: form.id }); evaluationAdminState = null; evaluationReportState = null; await loadEvaluationAdmin(); }
+          catch (e) {}
+        }) : null]]));
+    const report = evaluationReportState || { responses: [], byStudent: [], byCompany: [], aggregate: { responses: 0, averageRating: null } };
+    return [h('h1', {}, 'Evaluations'),
+      h('p', {}, 'Create and manage the active evaluation form. Submitted answers are visible only to administrators; submitted forms are locked.'),
+      h('div', { class: 'card' }, h('h2', {}, 'Evaluation forms'),
+        pbtn('Create form', () => editEvaluationForm(null)), formsTable, editor),
+      h('div', { class: 'card form' },
+        selectField('evaluation-report-sort', 'Sort by', [['name', 'Name'], ['email', 'Email']], reportSortBy),
+        selectField('evaluation-report-direction', 'Direction', [['asc', 'Ascending'], ['desc', 'Descending']], reportDirection),
+        pbtn('Apply sort', () => { reportSortBy = $('#evaluation-report-sort').value; reportDirection = $('#evaluation-report-direction').value; render(); }),
+        pbtn('Download sorted evaluations CSV', () => downloadCsv('evaluations')),
+        pbtn('Print / Save as PDF', () => printReport('evaluations'))),
+      h('section', { class: 'card' }, h('h2', {}, 'Aggregate results'),
+        h('p', {}, report.aggregate.responses + ' submissions · average rating ' + (report.aggregate.averageRating ?? 'No ratings'))),
+      h('section', { class: 'card' }, h('h2', {}, 'By student'),
+        table(['Student', 'Email', 'Responses', 'Average rating'], sortByNameOrEmail(report.byStudent || [], 'name', 'email').map(row => [row.name, row.email, row.responses, row.averageRating ?? '—']))),
+      h('section', { class: 'card' }, h('h2', {}, 'By company'),
+        table(['Company', 'Email', 'Responses', 'Average rating'], sortByNameOrEmail(report.byCompany || [], 'name', 'email').map(row => [row.name, row.email, row.responses, row.averageRating ?? '—']))),
+      h('section', { class: 'card' }, h('h2', {}, 'Submitted evaluations'),
+        table(['Student', 'Student email', 'Company', 'Company email', 'Form', 'Submitted', 'Answers'],
+          sortByNameOrEmail(report.responses || [], 'student', 'studentEmail').map(response => [response.student, response.studentEmail, response.company, response.companyEmail,
+            response.form, response.date, evaluationAnswersSummary(response)])))];
+  },
+  Reports: () => {
+    if (reportType === 'evaluations' && !evaluationReportState && !evaluationAdminLoading) loadEvaluationAdmin();
+    const report = reportView(reportType);
+    const sortReports = items => items.slice().sort((a, b) => String((reportSortBy === 'email' ? a.studentEmail : a.student) || '')
+      .localeCompare(String((reportSortBy === 'email' ? b.studentEmail : b.student) || ''), 'und', { sensitivity: 'accent' }) * (reportDirection === 'desc' ? -1 : 1));
+    return [h('h1', {}, 'Reports'), h('p', {}, 'Choose a report, date range and sort order. CSV downloads and print-friendly views use the same ordering.'),
+      h('div', { class: 'card form' }, field('rf', 'From', 'date'), field('rt', 'To', 'date'),
+        selectField('report-type', 'Report', [['students', 'Students'], ['companies', 'Companies'], ['placements', 'Placements'],
+          ['applications', 'Applications'], ['attendance', 'Attendance'], ['evaluations', 'Evaluations'], ['audit', 'Audit'], ['reports', 'Company reports']], reportType),
+        selectField('report-sort', 'Sort by', [['name', 'Name'], ['email', 'Email']], reportSortBy),
+        selectField('report-direction', 'Direction', [['asc', 'Ascending'], ['desc', 'Descending']], reportDirection),
+        pbtn('Apply report options', () => { reportType = $('#report-type').value; reportSortBy = $('#report-sort').value; reportDirection = $('#report-direction').value; render(); }),
+        pbtn('Download CSV', () => downloadCsv(reportType)), pbtn('Print / Save as PDF', () => printReport(reportType))),
+      h('p', { class: 'msg' }, report.rows.length + ' records'),
+      table(report.headers, report.rows.map(row => row.values)),
+      h('h2', {}, 'Final reports from companies'), h('p', {}, 'Reports on each intern, uploaded by the company. View, download or print them.'),
+      h('div', { id: 'review' }),
+      table(['Student', 'Student email', 'Company', 'Company email', 'Summary', 'Date', ''],
+        sortReports(D.reports).map(k => [k.student, k.studentEmail, k.company, k.companyEmail, k.summary || '-', k.date,
+          [btn('View', () => reportAct(k, 'view')), btn('Download', () => reportAct(k, 'download')), btn('Print', () => reportAct(k, 'print'))]]))];
+  }
 };
 
 const HERO = {
@@ -733,7 +1207,128 @@ const HERO = {
 };
 const hero = () => tab !== NAV[D.role][0] || D.role === 'ADMIN' ? null : h('section', { class: 'hero' }, h('small', {}, HERO[D.role][0]), h('h1', {}, HERO[D.role][1]), h('p', {}, HERO[D.role][2]));
 
+function renderCompanyOnboarding() {
+  const c = D.companies[0] || {};
+  const locationSet = c.locationLat !== null && c.locationLat !== undefined
+    && c.locationLng !== null && c.locationLng !== undefined && String(c.locationAddress || '').trim().length >= 3;
+  const step = onboardingEditStep || (!D.me.passwordChanged ? 'password'
+    : !c.profileDetailsComplete ? 'profile' : !locationSet ? 'location' : 'preview');
+  const status = (message, error = false) => {
+    const node = $('#onboard-status');
+    if (node) { node.textContent = message; node.className = error ? 'msg error' : 'msg'; }
+  };
+  const savePassword = async () => {
+    if (v('on-new-password') !== v('on-confirm-password')) { status('The new passwords do not match.', true); return; }
+    if (v('on-new-password') === v('on-old-password')) { status('Choose a new password instead of reusing the temporary password.', true); return; }
+    try {
+      await api('/api/password', { old: v('on-old-password'), password: v('on-new-password') });
+      onboardingEditStep = '';
+      toast('Password updated');
+      await refresh();
+    } catch (e) { status('Password could not be changed. Check the message above and try again.', true); }
+  };
+  const saveProfile = async () => {
+    try {
+      await api('/api/profile', { name: v('on-name'), industry: v('on-industry'), focus: v('on-focus'),
+        email: v('on-email'), about: v('on-about'), website: v('on-website') });
+      onboardingEditStep = '';
+      toast('Company profile saved');
+      await refresh();
+    } catch (e) { status('Profile could not be saved. Check the message above and try again.', true); }
+  };
+  const locate = () => {
+    onboardingGps = null;
+    status('Requesting a fresh, high-accuracy location…');
+    if (!navigator.geolocation) { status('This browser does not support location. Paste a Google Maps link or coordinates instead.', true); return; }
+    navigator.geolocation.getCurrentPosition(position => {
+      onboardingGps = { lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy };
+      status('Position received: ' + onboardingGps.lat.toFixed(6) + ', ' + onboardingGps.lng.toFixed(6)
+        + ' · accuracy ±' + Math.round(onboardingGps.accuracy) + ' m. Save the location below.');
+    }, error => {
+      const message = error.code === 1 ? 'Location permission was denied. Allow location access or paste a Google Maps link/coordinates.'
+        : error.code === 3 ? 'Location request timed out. Try again or paste a Google Maps link/coordinates.'
+        : 'Could not read your location. Check device location settings or paste coordinates.';
+      status(message, true);
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  };
+  const saveLocation = async () => {
+    const payload = { address: v('on-address'), location: v('on-location') };
+    if (onboardingGps) { payload.lat = String(onboardingGps.lat); payload.lng = String(onboardingGps.lng); }
+    try {
+      await api('/api/company/location', payload);
+      onboardingGps = null;
+      onboardingEditStep = '';
+      toast('Workplace location saved');
+      await refresh();
+    } catch (e) { status('Location could not be saved. Check the message above and try again.', true); }
+  };
+  const steps = [['password', '1 · Password'], ['profile', '2 · Profile'], ['location', '3 · Location'], ['preview', '4 · Confirm']];
+  const edit = key => { onboardingEditStep = key; renderCompanyOnboarding(); };
+  let content;
+  if (step === 'password') {
+    content = h('section', { class: 'card form', 'aria-labelledby': 'onboard-title' },
+      h('h2', { id: 'onboard-title' }, 'Change your temporary password'),
+      h('p', {}, 'Your administrator issued a temporary password. Replace it with a strong, private password before continuing.'),
+      field('on-old-password', 'Temporary password', 'password', 'Enter your current password'),
+      field('on-new-password', 'New password', 'password', 'At least 8 characters, including a letter and a number'),
+      field('on-confirm-password', 'Confirm new password', 'password', 'Re-enter your new password'),
+      h('button', { type: 'button', class: 'icon-button', onclick: savePassword }, ...iconButtonChildren('Change password')));
+  } else if (step === 'profile') {
+    content = h('section', { class: 'card form', 'aria-labelledby': 'onboard-title' },
+      h('h2', { id: 'onboard-title' }, 'Complete your company profile'),
+      h('p', {}, 'Industry, about, contact email, and workplace address are required. Website is optional.'),
+      field('on-name', 'Company name', 'text', '', c.name),
+      field('on-industry', 'Industry', 'text', 'e.g. Financial services', c.industry),
+      field('on-email', 'Contact email', 'email', 'hr@company.com', c.email),
+      h('label', {}, 'About the company', h('textarea', { id: 'on-about', maxlength: 600, rows: 4 }, c.about || '')),
+      field('on-website', 'Website (optional)', 'url', 'https://example.com', c.website),
+      field('on-focus', 'Focus areas (optional)', 'text', '', c.focus),
+      h('button', { type: 'button', class: 'icon-button', onclick: saveProfile }, ...iconButtonChildren('Save profile and continue')));
+  } else if (step === 'location') {
+    content = h('section', { class: 'card form', 'aria-labelledby': 'onboard-title' },
+      h('h2', { id: 'onboard-title' }, 'Set your workplace location'),
+      h('p', {}, 'Use your current location while at the workplace, or paste a Google Maps link / latitude,longitude. Enter the workplace address for students.'),
+      h('label', {}, 'Workplace address', h('textarea', { id: 'on-address', maxlength: 300, rows: 2, required: '', value: c.locationAddress || '' }, c.locationAddress || '')),
+      field('on-location', 'Google Maps link or latitude,longitude', 'text', '5.6037,-0.1870'),
+      h('button', { type: 'button', class: 'link icon-button', onclick: locate }, ...iconButtonChildren('Use my current location')),
+      onboardingGps ? h('p', { class: 'sm' }, 'Current fix: ' + onboardingGps.lat.toFixed(6) + ', ' + onboardingGps.lng.toFixed(6) + ' · accuracy ±' + Math.round(onboardingGps.accuracy) + ' m') : null,
+      h('button', { type: 'button', class: 'icon-button', onclick: saveLocation }, ...iconButtonChildren('Save location and continue')));
+  } else {
+    const mapLink = c.mapsLink || (locationSet ? 'https://www.google.com/maps?q=' + c.locationLat + ',' + c.locationLng : '');
+    content = h('section', { class: 'card', 'aria-labelledby': 'onboard-title' },
+      h('h2', { id: 'onboard-title' }, 'Review your company details'),
+      h('p', {}, 'Confirm the read-only summary below. Use Edit to correct any section before completing onboarding.'),
+      h('div', { class: 'onboarding-summary' },
+        h('h3', {}, 'Profile'),
+        h('p', {}, c.name || 'Company name not set'),
+        h('p', {}, 'Industry: ' + (c.industry || 'Not set')),
+        h('p', {}, 'Contact: ' + (c.email || 'Not set')),
+        h('p', {}, c.about || 'About not set'),
+        h('button', { type: 'button', class: 'link', onclick: () => edit('profile') }, 'Edit profile'),
+        h('h3', {}, 'Workplace'),
+        h('p', {}, c.locationAddress || 'Address not set'),
+        h('p', {}, locationSet ? c.locationLat + ', ' + c.locationLng : 'Location not set'),
+        mapLink ? h('a', { href: mapLink, target: '_blank', rel: 'noopener noreferrer' }, 'Open in Google Maps') : null,
+        h('p', {}, h('button', { type: 'button', class: 'link', onclick: () => edit('location') }, 'Edit location'))),
+      h('button', { type: 'button', class: 'icon-button', onclick: async () => {
+        try { await api('/api/onboarding/confirm', {}); onboardingEditStep = ''; toast('Onboarding complete'); await refresh(); }
+        catch (e) { status('Onboarding could not be confirmed. Complete each required item first.', true); }
+      } }, ...iconButtonChildren('Confirm and enter the portal')));
+  }
+  $('#app').replaceChildren(h('main', { class: 'company-onboarding', 'aria-labelledby': 'onboard-heading' },
+    h('p', { class: 'tag' }, 'Required company setup'),
+    h('h1', { id: 'onboard-heading' }, 'Welcome, ' + (c.name || 'company partner')),
+    h('p', {}, 'Complete all four steps to unlock the company workspace. You can sign out, but the setup cannot be skipped.'),
+    h('ol', { class: 'onboarding-steps', 'aria-label': 'Onboarding progress' }, steps.map(([key, label]) =>
+      h('li', { class: key === step ? 'current' : steps.findIndex(item => item[0] === key) < steps.findIndex(item => item[0] === step) ? 'complete' : '' }, label))),
+    content, h('p', { id: 'onboard-status', class: 'msg', role: 'status', 'aria-live': 'polite' })));
+}
+
 function render() {
+  if (D.role === 'COMPANY' && D.me.mustOnboard) {
+    renderCompanyOnboarding();
+    return;
+  }
   if (lastTab !== tab) {
     if (lastTab && !suppressTabHistory) tabHistory.push(lastTab);
     const g0 = groupOf(tab, D.role); if (g0) openGroups.add(g0);
@@ -796,8 +1391,9 @@ function render() {
 // ---- sign in, sign up, email verification, password reset, privacy notice and letter check ----
 const PRIVACY = [
   'Who we are: Palm University College runs this portal to organise student internships.',
-  'What we keep: your name, email address and programme; your CV; your applications and the school and company messages about them; your attendance, weekly logbook, evaluation and final report during an internship; and a log of important actions on your account.',
-  'Who can see it: school staff, and the company you apply to or intern with, only for the applications and internships that involve them. Companies never see other students or other companies.',
+  'What we keep: your name, email address and programme; your CV; your applications and the school and company messages about them; your attendance, weekly logbook, evaluation and final report during an internship; and a log of important actions on your account. For attendance, your device location is checked only when you clock in or out; clock-in coordinates, accuracy and distance are retained for the configured attendance retention period and then purged.',
+  'Who can see it: school staff, and the company you apply to or intern with, only for the applications and internships that involve them. Companies never see other students or other companies. Only school administrators can see evaluation answers. Administrators can review precise attendance coordinates, students can see their own attendance records, and companies see only whether a clock-in was verified on site.',
+  'Location: attendance location is used only to confirm that a clock-in is within the workplace geofence and to support attendance audits. The portal does not track location continuously. Browser location access requires HTTPS except on localhost.',
   'AI suggestions: if you tick the optional consent box, your CV is sent to an AI service only to suggest companies. If you do not tick it, a private matcher on our own server is used and nothing leaves the portal.',
   'How long: CV files are deleted automatically after the retention period set by the school (730 days unless changed). Placement records are kept as academic records.',
   'Your rights: you can change your password at any time and delete your account and data from the Account page if you have no placement. For anything else, ask the school office to correct or erase your data, in line with Ghana\'s Data Protection Act, 2012 (Act 843).',

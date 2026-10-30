@@ -23,6 +23,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.time.LocalDate;
+import java.text.Collator;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Function;
@@ -72,10 +73,16 @@ public class Server {
         }
         return Collections.unmodifiableMap(values);
     }
-    record User(String name, String role, String ref, byte[] salt, byte[] hash) {}
+    record User(String name, String role, String ref, byte[] salt, byte[] hash, boolean mustOnboard, boolean passwordChanged) {}
     record Student(String id, String name, String program, String email) { Student(String id, String name, String program) { this(id, name, program, ""); } }
-    record Company(String id, String name, String industry, String focus, int capacity, String email, String website, String about) {
-        Company(String id, String name, String industry, String focus, int capacity) { this(id, name, industry, focus, capacity, "", "", ""); }
+    record Company(String id, String name, String industry, String focus, int capacity, String email, String website, String about,
+                   Double locationLat, Double locationLng, String locationAddress, String mapsLink, String locationSetOn, String locationSetBy) {
+        Company(String id, String name, String industry, String focus, int capacity, String email, String website, String about) {
+            this(id, name, industry, focus, capacity, email, website, about, null, null, "", "", "", "");
+        }
+        Company(String id, String name, String industry, String focus, int capacity) {
+            this(id, name, industry, focus, capacity, "", "", "");
+        }
     }
     record Session(String csrf, long exp, User u) {}
     record Match(Company c, int score, String why) {}
@@ -98,8 +105,8 @@ public class Server {
     static final Map<String, long[]> fails = new ConcurrentHashMap<>();
     static final Set<String> STATUSES = Set.of("PENDING", "ACTIVE", "COMPLETED", "CANCELLED");
     static final Set<String> COMPANY_SEES = Set.of("FORWARDED", "ACCEPTED", "DECLINED");
-    static final Set<String> ADMIN_POST = Set.of("/api/student", "/api/company", "/api/assign", "/api/status", "/api/review", "/api/message", "/api/resetpw", "/api/staff", "/api/settings", "/api/register", "/api/access", "/api/erase");
-    static final Set<String> ADMIN_GET = Set.of("/api/match", "/api/export");
+    static final Set<String> ADMIN_POST = Set.of("/api/student", "/api/company", "/api/assign", "/api/status", "/api/review", "/api/message", "/api/resetpw", "/api/staff", "/api/settings", "/api/register", "/api/access", "/api/erase", "/api/onboarding/reset", "/api/evaluation-forms", "/api/evaluation-forms/duplicate", "/api/evaluation-forms/archive");
+    static final Set<String> ADMIN_GET = Set.of("/api/match", "/api/export", "/api/evaluation-report");
     static final Set<String> STOP = Set.of("and", "the", "for", "bsc", "msc", "hnd", "of", "with", "from", "that", "this", "have", "has", "was", "were", "are", "not", "you", "your", "our", "their", "can", "all", "any", "who", "also", "into", "been", "will", "palm", "ghana", "university", "college");
     static final Map<String, String> STATIC = Map.of("/", "index.html", "/app.js", "app.js", "/style.css", "style.css",
             "/logo.png", "logo.png", "/hero.jpg", "hero.jpg", "/hero.svg", "hero.svg", "/puc.png", "puc.png");
@@ -126,6 +133,7 @@ public class Server {
             return;
         }
         if ("true".equalsIgnoreCase(env("IMPORT_DATA_FILE"))) importDataFile();
+        migrateLegacyEvaluations();
         settings.computeIfAbsent("secret", k -> token() + token());   // signs the letter verification codes
         for (String d : new String[]{"static", ".", "PalmPortal/static", "src/static"})   // find the web files wherever they are
             if (Files.exists(Path.of(d, "index.html"))) { WEB = Path.of(d); break; }
@@ -163,11 +171,42 @@ public class Server {
     record Aud(String at, String actor, String action, String detail) {}
     record Note(String user, String at, String text, boolean read) {}
     record Eval(String sid, String cid, int punctuality, int skills, int attitude, int teamwork, String comment, String date) {}
+    record EvaluationForm(String id, String title, String status, String createdOn) {}
+    record EvaluationQuestion(String id, String formId, String prompt, String type, boolean required, int order, String options) {}
+    record EvaluationResponse(String sid, String cid, String formId, String answers, String submittedOn) {}
     record LogEntry(String id, String sid, String cid, String week, String body, String status, String note, String date) {}
     static final List<Aud> audits = new ArrayList<>();
     static final List<Note> notes = new ArrayList<>();
     static final List<Eval> evals = new ArrayList<>();
+    static final List<EvaluationForm> evaluationForms = new ArrayList<>();
+    static final List<EvaluationQuestion> evaluationQuestions = new ArrayList<>();
+    static final List<EvaluationResponse> evaluationResponses = new ArrayList<>();
     static final List<LogEntry> logs = new ArrayList<>();
+
+    static synchronized void migrateLegacyEvaluations() {
+        final String standardId = "EF_STANDARD";
+        EvaluationForm standard = evaluationForms.stream().filter(f -> f.id().equals(standardId)).findFirst().orElse(null);
+        if (standard == null) {
+            standard = new EvaluationForm(standardId, "Standard evaluation", activeEvaluationForm() == null ? "ACTIVE" : "DRAFT", today());
+            evaluationForms.add(standard);
+            evaluationQuestions.addAll(List.of(
+                new EvaluationQuestion("EQ_PUNCTUALITY", standardId, "Punctuality", "rating", true, 1, ""),
+                new EvaluationQuestion("EQ_SKILLS", standardId, "Skills", "rating", true, 2, ""),
+                new EvaluationQuestion("EQ_ATTITUDE", standardId, "Attitude", "rating", true, 3, ""),
+                new EvaluationQuestion("EQ_TEAMWORK", standardId, "Teamwork", "rating", true, 4, ""),
+                new EvaluationQuestion("EQ_COMMENT", standardId, "Additional comments", "long_text", false, 5, "")));
+        }
+        for (Eval old : evals) {
+            boolean present = evaluationResponses.stream().anyMatch(r -> r.sid().equals(old.sid()) && r.cid().equals(old.cid()));
+            if (!present) {
+                String answers = "{\"EQ_PUNCTUALITY\":" + old.punctuality() + ",\"EQ_SKILLS\":" + old.skills()
+                    + ",\"EQ_ATTITUDE\":" + old.attitude() + ",\"EQ_TEAMWORK\":" + old.teamwork()
+                    + ",\"EQ_COMMENT\":" + q(old.comment()) + "}";
+                evaluationResponses.add(new EvaluationResponse(old.sid(), old.cid(), standardId, answers, old.date() + "T12:00:00"));
+            }
+        }
+        save();
+    }
     static final Map<String, String> AI_CACHE = new ConcurrentHashMap<>();
     static final Semaphore AI_SLOTS = new Semaphore(3);   // at most three AI analyses at once
 
@@ -268,6 +307,7 @@ public class Server {
         apps.removeIf(a -> { if (a.sid.equals(sid)) { rm(CVS.resolve(a.id + ".pdf")); return true; } return false; });
         placements.removeIf(p -> p.sid.equals(sid)); attendance.removeIf(w -> w.sid().equals(sid));
         logs.removeIf(l -> l.sid().equals(sid)); evals.removeIf(v -> v.sid().equals(sid));
+        evaluationResponses.removeIf(v -> v.sid().equals(sid));
         reports.removeIf(k -> { if (k.sid().equals(sid)) { rm(REPORTS.resolve(sid + "_" + k.cid() + ".pdf")); return true; } return false; });
         rm(CVS.resolve(sid + ".pdf"));
         if (un != null) { users.remove(un); unverified.remove(un); notes.removeIf(n -> n.user().equals(un)); }
@@ -285,7 +325,20 @@ public class Server {
             java.time.Instant cutoff = java.time.Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS);
             if (Files.isDirectory(CVS)) try (var fs = Files.list(CVS)) { for (Path f : fs.toList()) if (Files.getLastModifiedTime(f).toInstant().isBefore(cutoff)) Files.deleteIfExists(f); }
             String cut = java.time.LocalDateTime.now().minusDays(90).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            synchronized (Server.class) { if (notes.removeIf(n -> n.read() && n.at().compareTo(cut) < 0)) save(); }
+            synchronized (Server.class) {
+                boolean locationPurged = false;
+                java.time.LocalDateTime locationCutoff = java.time.LocalDateTime.now().minusDays(days);
+                for (int i = 0; i < attendance.size(); i++) {
+                    Att a = attendance.get(i);
+                    if (java.time.LocalDateTime.parse(a.clockIn()).isBefore(locationCutoff)
+                        && (a.inLat() != null || a.inLng() != null || a.inAccuracy() != null || a.outLat() != null || a.outLng() != null || a.outAccuracy() != null)) {
+                        attendance.set(i, new Att(a.sid(), a.cid(), a.clockIn(), a.clockOut(), null, null, null, a.inDistance(),
+                            a.inVerified(), null, null, null, a.outDistance()));
+                        locationPurged = true;
+                    }
+                }
+                if (locationPurged || notes.removeIf(n -> n.read() && n.at().compareTo(cut) < 0)) save();
+            }
         } catch (Exception e) { System.err.println("Housekeeping failed: " + e.getMessage()); }
     }
 
@@ -295,8 +348,14 @@ public class Server {
         return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(new PBEKeySpec(pw.toCharArray(), salt, 120_000, 256)).getEncoded();
     }
     static User newUser(String n, String role, String ref, String pw) throws Exception {
+        return newUser(n, role, ref, pw, false);
+    }
+    static User newUser(String n, String role, String ref, String pw, boolean mustOnboard) throws Exception {
+        return newUser(n, role, ref, pw, mustOnboard, !mustOnboard);
+    }
+    static User newUser(String n, String role, String ref, String pw, boolean mustOnboard, boolean passwordChanged) throws Exception {
         byte[] s = new byte[16]; RNG.nextBytes(s);
-        return new User(n, role, ref, s, hash(pw, s));
+        return new User(n, role, ref, s, hash(pw, s), mustOnboard, passwordChanged);
     }
     static String clean(String s, int max) {
         s = s == null ? "" : s.replaceAll("[\\p{Cntrl}<>]", " ").trim();
@@ -309,7 +368,8 @@ public class Server {
         if (s == null) return null;
         long now = System.currentTimeMillis();
         if (s.exp() <= now) { sessions.remove(tk); return null; }
-        Session fresh = new Session(s.csrf(), now + SESSION_MS, s.u()); sessions.put(tk, fresh); return fresh;
+        User current = users.getOrDefault(s.u().name(), s.u());
+        Session fresh = new Session(s.csrf(), now + SESSION_MS, current); sessions.put(tk, fresh); return fresh;
     }
 
     static String ctype(String f) {
@@ -323,7 +383,7 @@ public class Server {
             Headers h = x.getResponseHeaders();
             h.set("X-Content-Type-Options", "nosniff"); h.set("X-Frame-Options", "DENY");
             h.set("Referrer-Policy", "no-referrer"); h.set("Cache-Control", "no-store");
-            h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); h.set("Cross-Origin-Opener-Policy", "same-origin");
+            h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)"); h.set("Cross-Origin-Opener-Policy", "same-origin");
             if (PRODUCTION) h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
             h.set("Content-Security-Policy", "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-src blob:; frame-ancestors 'none'; base-uri 'none'");
             String p = x.getRequestURI().getPath(), m = x.getRequestMethod();
@@ -363,6 +423,7 @@ public class Server {
     static void json(HttpExchange x, int c, String s) throws IOException { send(x, c, "application/json", s.getBytes(StandardCharsets.UTF_8)); }
     static String q(String s) { return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""; }
     static String err(String m) { return "{\"error\":" + q(m) + "}"; }
+    static String errCode(String code, String message) { return "{\"error\":" + q(message) + ",\"code\":" + q(code) + "}"; }
     static <T> String arr(Stream<T> s, Function<T, String> f) { return "[" + s.map(f).collect(Collectors.joining(",")) + "]"; }
 
     static Map<String, String> form(HttpExchange x) throws IOException {
@@ -393,6 +454,12 @@ public class Server {
         WHO.set(s.u().name());   // the audit log records who did what
         if (m.equals("POST") && !s.csrf().equals(x.getRequestHeaders().getFirst("X-CSRF"))) { json(x, 403, err("Invalid request token")); return; }
         boolean admin = s.u().role().equals("ADMIN");
+        if (s.u().role().equals("COMPANY") && s.u().mustOnboard()
+            && !(m.equals("GET") && p.equals("/api/data"))
+            && !(m.equals("POST") && Set.of("/api/password", "/api/profile", "/api/company/location", "/api/onboarding/confirm", "/api/logout").contains(p))) {
+            json(x, 403, errCode("ONBOARDING_REQUIRED", "Complete company onboarding before using the portal."));
+            return;
+        }
         if (!admin && ((m.equals("POST") && ADMIN_POST.contains(p)) || (m.equals("GET") && ADMIN_GET.contains(p)))) { json(x, 403, err("Not allowed for your role")); return; }
         if (m.equals("GET")) {
             switch (p) {
@@ -403,6 +470,8 @@ public class Server {
                 case "/api/cv" -> cv(x, s);
                 case "/api/search" -> search(x, s);
                 case "/api/report" -> report(x, s);
+                case "/api/evaluation-forms" -> evaluationForms(x, s.u());
+                case "/api/evaluation-report" -> evaluationReport(x, s.u());
                 default -> json(x, 404, err("Not found"));
             }
             return;
@@ -411,7 +480,8 @@ public class Server {
         if (p.equals("/api/cv")) { uploadCv(x, s.u()); return; }
         if (p.equals("/api/analyse")) { analyse(x, s); return; }
         if (p.equals("/api/report")) { uploadReport(x, s.u()); return; }   // raw file body: must be read before form()
-        Map<String, String> f = form(x, p.equals("/api/register") ? 524288 : 4096);
+        Map<String, String> f = form(x, p.equals("/api/register") ? 524288
+            : p.equals("/api/evaluation-submit") ? 262144 : p.equals("/api/evaluation-forms") ? 65536 : 4096);
         String r = switch (p) {
             case "/api/logout" -> { sessions.values().remove(s); yield OK; }
             case "/api/student" -> addStudent(f);
@@ -423,6 +493,13 @@ public class Server {
             case "/api/decide" -> decide(f, s.u());
             case "/api/password" -> changePassword(f, s);
             case "/api/profile" -> updateProfile(f, s.u());
+            case "/api/company/location" -> setCompanyLocation(f, s.u());
+            case "/api/onboarding/confirm" -> confirmCompanyOnboarding(s.u());
+            case "/api/onboarding/reset" -> resetCompanyOnboarding(f);
+            case "/api/evaluation-forms" -> saveEvaluationForm(f);
+            case "/api/evaluation-forms/duplicate" -> duplicateEvaluationForm(f);
+            case "/api/evaluation-forms/archive" -> archiveEvaluationForm(f);
+            case "/api/evaluation-submit" -> submitEvaluation(f, s.u());
             case "/api/post" -> addPost(f, s.u());
             case "/api/message" -> messageStudent(f);
             case "/api/resetpw" -> adminReset(f);
@@ -438,7 +515,6 @@ public class Server {
             case "/api/withdraw" -> withdraw(f, s.u());
             case "/api/dates" -> setDates(f, s.u());
             case "/api/complete" -> complete(f, s.u());
-            case "/api/eval" -> evaluate(f, s.u());
             case "/api/log" -> addLog(f, s.u());
             case "/api/logreview" -> reviewLog(f, s.u());
             default -> null;
@@ -500,7 +576,7 @@ public class Server {
         if (!em.isEmpty() && !ANY_EMAIL.matcher(em).matches()) return err("Contact email is not valid");
         String id = nid("C", companies.stream().map(Company::id)), pw = tempPass();
         companies.add(new Company(id, n, ind, foc, cap, em, "", ""));
-        users.put(id.toLowerCase(), newUser(id.toLowerCase(), "COMPANY", id, pw)); audit("company_created", id + " " + n);
+        users.put(id.toLowerCase(), newUser(id.toLowerCase(), "COMPANY", id, pw, true, false)); audit("company_created", id + " " + n);
         save(); return "{\"ok\":true,\"login\":" + q(id.toLowerCase()) + ",\"password\":" + q(pw) + ",\"name\":" + q(n) + ",\"email\":" + q(em) + "}";
     }
 
@@ -599,25 +675,90 @@ public class Server {
         List<Rep> rl = new ArrayList<>(reports); Collections.reverse(rl);
         Stream<Map.Entry<String, Reset>> rs = r.equals("ADMIN") ? resets.entrySet().stream().filter(e -> e.getValue().exp() > System.currentTimeMillis() && !e.getValue().emailed()) : Stream.empty();
         String me = "{\"name\":" + q(r.equals("STUDENT") ? student(u.ref()).name() : r.equals("COMPANY") ? company(u.ref()).name() : (u.name().equals("admin") ? "Administrator" : u.name()))
-                + ",\"placed\":" + (r.equals("STUDENT") && active(u.ref()) != null) + ",\"cv\":" + (r.equals("STUDENT") && Files.exists(CVS.resolve(u.ref() + ".pdf"))) + ",\"ai\":" + (!aiProvider().isEmpty()) + placementInfo(r, u) + ",\"unread\":" + notes.stream().filter(n -> n.user().equals(u.name()) && !n.read()).count() + "}";
+                + ",\"placed\":" + (r.equals("STUDENT") && active(u.ref()) != null) + ",\"cv\":" + (r.equals("STUDENT") && Files.exists(CVS.resolve(u.ref() + ".pdf"))) + ",\"ai\":" + (!aiProvider().isEmpty()) + placementInfo(r, u)
+                + ",\"unread\":" + notes.stream().filter(n -> n.user().equals(u.name()) && !n.read()).count()
+                + ",\"mustOnboard\":" + u.mustOnboard() + ",\"passwordChanged\":" + u.passwordChanged() + "}";
+        if (r.equals("COMPANY") && u.mustOnboard()) {
+            Company c = company(u.ref());
+            return "{\"role\":\"COMPANY\",\"me\":" + me + ",\"companies\":[" + companyJson(c, r)
+                + "],\"settings\":{\"geofenceMeters\":" + q(setting("geofenceMeters", "100")) + "}}";
+        }
         return "{\"role\":" + q(r) + ",\"me\":" + me
             + ",\"students\":" + arr(ss, t -> "{\"id\":" + q(t.id()) + ",\"name\":" + q(t.name()) + ",\"program\":" + q(t.program()) + ",\"email\":" + q(t.email()) + ",\"placed\":" + (active(t.id()) != null) + ",\"cv\":" + Files.exists(CVS.resolve(t.id() + ".pdf")) + "}")
-            + ",\"companies\":" + arr(cs, t -> "{\"id\":" + q(t.id()) + ",\"name\":" + q(t.name()) + ",\"industry\":" + q(t.industry()) + ",\"focus\":" + q(t.focus()) + ",\"about\":" + q(t.about()) + ",\"website\":" + q(t.website()) + ",\"email\":" + q(r.equals("STUDENT") ? "" : t.email()) + ",\"capacity\":" + t.capacity() + ",\"filled\":" + filled(t.id()) + "}")
-            + ",\"placements\":" + arr(ps, t -> "{\"sid\":" + q(t.sid) + ",\"student\":" + q(student(t.sid).name()) + ",\"company\":" + q(company(t.cid).name()) + ",\"cid\":" + q(t.cid) + ",\"status\":" + q(t.status) + ",\"program\":" + q(student(t.sid).program()) + ",\"start\":" + q(t.start) + ",\"end\":" + q(t.end) + ",\"date\":" + q(t.date) + "}")
-            + ",\"applications\":" + arr(as, a -> "{\"id\":" + q(a.id) + ",\"student\":" + q(student(a.sid).name()) + ",\"program\":" + q(student(a.sid).program()) + ",\"company\":" + q(cname(a)) + ",\"cid\":" + q(a.cid) + ",\"cv\":" + Files.exists(CVS.resolve(a.id + ".pdf")) + ",\"pstatus\":" + q(pstatus(a))
+            + ",\"companies\":" + arr(cs, t -> companyJson(t, r))
+            + ",\"placements\":" + arr(ps, t -> "{\"sid\":" + q(t.sid) + ",\"student\":" + q(student(t.sid).name()) + ",\"studentEmail\":" + q(student(t.sid).email())
+                + ",\"company\":" + q(company(t.cid).name()) + ",\"companyEmail\":" + q(company(t.cid).email()) + ",\"cid\":" + q(t.cid) + ",\"status\":" + q(t.status)
+                + ",\"program\":" + q(student(t.sid).program()) + ",\"start\":" + q(t.start) + ",\"end\":" + q(t.end) + ",\"date\":" + q(t.date) + "}")
+            + ",\"applications\":" + arr(as, a -> "{\"id\":" + q(a.id) + ",\"student\":" + q(student(a.sid).name()) + ",\"studentEmail\":" + q(student(a.sid).email())
+                + ",\"company\":" + q(cname(a)) + ",\"companyEmail\":" + q(company(a.cid) == null ? "" : company(a.cid).email())
+                + ",\"program\":" + q(student(a.sid).program()) + ",\"cid\":" + q(a.cid) + ",\"cv\":" + Files.exists(CVS.resolve(a.id + ".pdf")) + ",\"pstatus\":" + q(pstatus(a))
                 + ",\"statement\":" + q(a.statement) + ",\"schoolNote\":" + q(r.equals("COMPANY") ? "" : a.schoolNote) + ",\"companyNote\":" + q(r.equals("STUDENT") ? "" : a.companyNote) + ",\"status\":" + q(a.status) + ",\"date\":" + q(a.date) + "}")
             + ",\"posts\":" + arr(pl.stream().filter(p -> !r.equals("COMPANY") || p.cid().equals(u.ref())), p -> "{\"id\":" + q(p.id()) + ",\"cid\":" + q(p.cid()) + ",\"company\":" + q(company(p.cid()).name()) + ",\"type\":" + q(p.type()) + ",\"title\":" + q(p.title()) + ",\"body\":" + q(p.body()) + ",\"date\":" + q(p.date()) + "}")
-            + ",\"attendance\":" + arr(al.stream().filter(w -> r.equals("ADMIN") || (r.equals("STUDENT") ? w.sid().equals(u.ref()) : w.cid().equals(u.ref()))), w -> "{\"sid\":" + q(w.sid()) + ",\"student\":" + q(student(w.sid()).name()) + ",\"cid\":" + q(w.cid()) + ",\"company\":" + q(company(w.cid()).name()) + ",\"in\":" + q(w.clockIn()) + ",\"out\":" + q(w.clockOut()) + "}")
-            + ",\"reports\":" + arr(rl.stream().filter(k -> r.equals("ADMIN") || (r.equals("COMPANY") && k.cid().equals(u.ref()))), k -> "{\"sid\":" + q(k.sid()) + ",\"student\":" + q(student(k.sid()).name()) + ",\"cid\":" + q(k.cid()) + ",\"company\":" + q(company(k.cid()).name()) + ",\"summary\":" + q(k.summary()) + ",\"date\":" + q(k.date()) + "}")
+            + ",\"attendance\":" + arr(al.stream().filter(w -> r.equals("ADMIN") || (r.equals("STUDENT") ? w.sid().equals(u.ref()) : w.cid().equals(u.ref()))), w -> attendanceJson(w, r))
+            + ",\"reports\":" + arr(rl.stream().filter(k -> r.equals("ADMIN") || (r.equals("COMPANY") && k.cid().equals(u.ref()))), k -> "{\"sid\":" + q(k.sid()) + ",\"student\":" + q(student(k.sid()).name())
+                + ",\"studentEmail\":" + q(student(k.sid()).email()) + ",\"cid\":" + q(k.cid()) + ",\"company\":" + q(company(k.cid()).name())
+                + ",\"companyEmail\":" + q(company(k.cid()).email()) + ",\"summary\":" + q(k.summary()) + ",\"date\":" + q(k.date()) + "}")
             + ",\"notes\":" + arr(notes.stream().filter(n -> n.user().equals(u.name())).sorted((x1, x2) -> x2.at().compareTo(x1.at())).limit(100), n -> "{\"at\":" + q(n.at()) + ",\"text\":" + q(n.text()) + ",\"read\":" + n.read() + "}")
             + ",\"logs\":" + arr(logs.stream().filter(l -> r.equals("ADMIN") || (r.equals("STUDENT") ? l.sid().equals(u.ref()) : l.cid().equals(u.ref()))).sorted((x1, x2) -> x2.id().compareTo(x1.id())), l -> "{\"id\":" + q(l.id()) + ",\"sid\":" + q(l.sid()) + ",\"student\":" + q(student(l.sid()).name()) + ",\"company\":" + q(company(l.cid()).name()) + ",\"week\":" + q(l.week()) + ",\"body\":" + q(l.body()) + ",\"status\":" + q(l.status()) + ",\"note\":" + q(l.note()) + ",\"date\":" + q(l.date()) + "}")
-            + ",\"evals\":" + arr(evals.stream().filter(v -> r.equals("ADMIN") || (r.equals("COMPANY") && v.cid().equals(u.ref()))), v -> "{\"sid\":" + q(v.sid()) + ",\"student\":" + q(student(v.sid()).name()) + ",\"cid\":" + q(v.cid()) + ",\"company\":" + q(company(v.cid()).name()) + ",\"punctuality\":" + v.punctuality() + ",\"skills\":" + v.skills() + ",\"attitude\":" + v.attitude() + ",\"teamwork\":" + v.teamwork() + ",\"comment\":" + q(v.comment()) + ",\"date\":" + q(v.date()) + "}")
-            + ",\"audit\":" + arr(r.equals("ADMIN") ? audits.stream().sorted((x1, x2) -> x2.at().compareTo(x1.at())).limit(300) : Stream.<Aud>empty(), a -> "{\"at\":" + q(a.at()) + ",\"actor\":" + q(a.actor()) + ",\"action\":" + q(a.action()) + ",\"detail\":" + q(a.detail()) + "}")
+            + ",\"evals\":" + (r.equals("ADMIN")
+                ? arr(evals.stream(), v -> "{\"sid\":" + q(v.sid()) + ",\"student\":" + q(student(v.sid()).name()) + ",\"studentEmail\":" + q(student(v.sid()).email())
+                    + ",\"cid\":" + q(v.cid()) + ",\"company\":" + q(company(v.cid()).name()) + ",\"companyEmail\":" + q(company(v.cid()).email())
+                    + ",\"punctuality\":" + v.punctuality() + ",\"skills\":" + v.skills() + ",\"attitude\":" + v.attitude() + ",\"teamwork\":" + v.teamwork() + ",\"comment\":" + q(v.comment()) + ",\"date\":" + q(v.date()) + "}")
+                : r.equals("COMPANY") ? companyEvaluationStatuses(u.ref()) : "[]")
+            + ",\"audit\":" + arr(r.equals("ADMIN") ? audits.stream().sorted((x1, x2) -> x2.at().compareTo(x1.at())).limit(300) : Stream.<Aud>empty(), a -> "{\"at\":" + q(a.at()) + ",\"actor\":" + q(a.actor()) + ",\"email\":" + q(auditEmail(a.actor())) + ",\"action\":" + q(a.action()) + ",\"detail\":" + q(a.detail()) + "}")
             + ",\"staff\":" + arr(r.equals("ADMIN") ? users.values().stream().filter(x1 -> x1.role().equals("ADMIN")).map(User::name).sorted() : Stream.<String>empty(), n -> q(n))
             + ",\"studentList\":" + arr(r.equals("ADMIN") ? register.entrySet().stream() : Stream.<Map.Entry<String, String>>empty(), e -> "{\"email\":" + q(e.getKey()) + ",\"name\":" + q(e.getValue()) + ",\"registered\":" + users.containsKey(e.getKey()) + "}")
             + ",\"accessRequests\":" + arr(r.equals("ADMIN") ? accessRequests.stream() : Stream.<AccessRequest>empty(), a -> "{\"id\":" + q(a.id()) + ",\"name\":" + q(a.name()) + ",\"program\":" + q(a.program()) + ",\"email\":" + q(a.email()) + ",\"reason\":" + q(a.reason()) + ",\"date\":" + q(a.date()) + ",\"status\":" + q(a.status()) + "}")
-            + ",\"settings\":{\"deadline\":" + q(setting("deadline", "")) + ",\"retentionDays\":" + q(setting("retentionDays", "730")) + ",\"registerCount\":" + register.size() + ",\"mail\":" + mailOn() + ",\"production\":" + PRODUCTION + "}"
+            + ",\"settings\":{\"deadline\":" + q(setting("deadline", "")) + ",\"retentionDays\":" + q(setting("retentionDays", "730"))
+            + ",\"geofenceMeters\":" + q(setting("geofenceMeters", "100")) + ",\"registerCount\":" + register.size() + ",\"mail\":" + mailOn() + ",\"production\":" + PRODUCTION + "}"
             + ",\"resets\":" + arr(rs, e -> "{\"username\":" + q(e.getValue().username()) + ",\"code\":" + q(e.getKey()) + ",\"minutes\":" + Math.max(0, (e.getValue().exp() - System.currentTimeMillis()) / 60000) + "}") + "}";
+    }
+
+    static String companyJson(Company c, String role) {
+        String extra = "";
+        if (role.equals("ADMIN")) {
+            String username = userOf("COMPANY", c.id());
+            User account = username == null ? null : users.get(username);
+            extra = ",\"mustOnboard\":" + (account != null && account.mustOnboard())
+                + ",\"passwordChanged\":" + (account != null && account.passwordChanged())
+                + ",\"profileComplete\":" + profileComplete(c)
+                + ",\"locationSetOn\":" + q(c.locationSetOn());
+        } else if (role.equals("COMPANY")) {
+            extra = ",\"profileComplete\":" + profileComplete(c) + ",\"profileDetailsComplete\":" + profileDetailsComplete(c);
+        }
+        return "{\"id\":" + q(c.id()) + ",\"name\":" + q(c.name()) + ",\"industry\":" + q(c.industry())
+            + ",\"focus\":" + q(c.focus()) + ",\"about\":" + q(c.about()) + ",\"website\":" + q(c.website())
+            + ",\"email\":" + q(role.equals("STUDENT") ? "" : c.email()) + ",\"capacity\":" + c.capacity()
+            + ",\"filled\":" + filled(c.id()) + ",\"locationLat\":" + (c.locationLat() == null ? "null" : c.locationLat())
+            + ",\"locationLng\":" + (c.locationLng() == null ? "null" : c.locationLng())
+            + ",\"locationAddress\":" + q(c.locationAddress()) + ",\"mapsLink\":" + q(c.mapsLink()) + extra + "}";
+    }
+
+    static String attendanceJson(Att a, String role) {
+        String out = "{\"sid\":" + q(a.sid()) + ",\"student\":" + q(student(a.sid()).name()) + ",\"cid\":" + q(a.cid())
+            + ",\"studentEmail\":" + q(student(a.sid()).email()) + ",\"company\":" + q(company(a.cid()).name())
+            + ",\"companyEmail\":" + q(company(a.cid()).email()) + ",\"in\":" + q(a.clockIn()) + ",\"out\":" + q(a.clockOut())
+            + ",\"hours\":" + q(hours(a)) + ",\"locationVerified\":" + a.inVerified()
+            + ",\"locationStatus\":" + q(a.inVerified() ? "Verified on site" : "Not verified");
+        if (role.equals("ADMIN") || role.equals("STUDENT")) {
+            out += ",\"inLat\":" + jsonNumber(a.inLat()) + ",\"inLng\":" + jsonNumber(a.inLng())
+                + ",\"inAccuracy\":" + jsonNumber(a.inAccuracy()) + ",\"inDistance\":" + jsonNumber(a.inDistance())
+                + ",\"outLat\":" + jsonNumber(a.outLat()) + ",\"outLng\":" + jsonNumber(a.outLng())
+                + ",\"outAccuracy\":" + jsonNumber(a.outAccuracy()) + ",\"outDistance\":" + jsonNumber(a.outDistance());
+        }
+        return out + "}";
+    }
+
+    static String jsonNumber(Double value) { return value == null ? "null" : Double.toString(value); }
+
+    static String companyEvaluationStatuses(String cid) {
+        return arr(placements.stream().filter(placement -> placement.cid.equals(cid) && !placement.status.equals("CANCELLED")), placement -> {
+            boolean submitted = evaluationResponses.stream().anyMatch(response -> response.sid().equals(placement.sid) && response.cid().equals(cid));
+            Student intern = student(placement.sid);
+            return "{\"sid\":" + q(placement.sid) + ",\"student\":" + q(intern == null ? "" : intern.name())
+                + ",\"cid\":" + q(cid) + ",\"company\":" + q(company(cid).name()) + ",\"submitted\":" + submitted
+                + ",\"status\":" + q(submitted ? "Submitted" : "Pending") + "}";
+        });
     }
 
     // ---------- letters of approval (only once the company has accepted) ----------
@@ -793,7 +934,8 @@ public class Server {
         if (r == null || r.exp() < System.currentTimeMillis() || !r.username().equals(name)) return err("Invalid or expired code");
         if (!strong(pw)) return err(WEAK);
         User u = users.get(name);
-        users.put(name, newUser(name, u.role(), u.ref(), pw));
+        boolean onboarding = u.role().equals("COMPANY");
+        users.put(name, newUser(name, u.role(), u.ref(), pw, onboarding, !onboarding));
         resets.remove(code); audit(name, "password_reset", "");
         sessions.values().removeIf(s -> s.u().name().equals(name));   // sign out everywhere
         save(); return OK;
@@ -805,7 +947,9 @@ public class Server {
         User cur = users.get(u.name());
         if (!MessageDigest.isEqual(hash(f.getOrDefault("old", ""), cur.salt()), cur.hash())) return err("Current password is incorrect");
         if (!strong(pw)) return err(WEAK);
-        users.put(u.name(), newUser(u.name(), u.role(), u.ref(), pw)); audit("password_changed", "");
+        if (cur.role().equals("COMPANY") && cur.mustOnboard()
+            && MessageDigest.isEqual(hash(pw, cur.salt()), cur.hash())) return err("Choose a new password instead of reusing the temporary password.");
+        users.put(u.name(), newUser(u.name(), u.role(), u.ref(), pw, cur.mustOnboard(), true)); audit("password_changed", "");
         sessions.values().removeIf(t -> t != s && t.u().name().equals(u.name()));
         save(); return OK;
     }
@@ -820,8 +964,90 @@ public class Server {
         if (name.length() < 2) return err("Company name is required");
         if (!web.isEmpty() && !web.matches("^https?://[^\\s]{3,}$")) return err("Website must start with http:// or https://");
         if (!em.isEmpty() && !ANY_EMAIL.matcher(em).matches()) return err("Contact email is not valid");
-        companies.set(i, new Company(o.id(), name, clean(f.get("industry"), 40), clean(f.get("focus"), 120), o.capacity(), em, web, clean(f.get("about"), 600)));
+        companies.set(i, new Company(o.id(), name, clean(f.get("industry"), 40), clean(f.get("focus"), 120), o.capacity(), em, web,
+            clean(f.get("about"), 600), o.locationLat(), o.locationLng(), o.locationAddress(), o.mapsLink(), o.locationSetOn(), o.locationSetBy()));
+        audit("company_profile_updated", o.id());
         save(); return OK;
+    }
+
+    record Coordinates(double lat, double lng) {}
+    static Coordinates parseCoordinates(String text) {
+        Matcher m = Pattern.compile("([-+]?(?:\\d{1,2}(?:\\.\\d+)?|90(?:\\.0+)?))\\s*,\\s*([-+]?(?:\\d{1,3}(?:\\.\\d+)?|180(?:\\.0+)?))").matcher(text);
+        if (!m.find()) return null;
+        try {
+            double lat = Double.parseDouble(m.group(1)), lng = Double.parseDouble(m.group(2));
+            return Double.isFinite(lat) && Double.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+                ? new Coordinates(lat, lng) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    static synchronized String setCompanyLocation(Map<String, String> f, User u) {
+        String cid = u.role().equals("COMPANY") ? u.ref() : f.getOrDefault("cid", "");
+        if (!(u.role().equals("COMPANY") || u.role().equals("ADMIN"))) return err("Companies or administrators only");
+        int index = -1;
+        for (int i = 0; i < companies.size(); i++) if (companies.get(i).id().equals(cid)) index = i;
+        if (index < 0) return err("Company not found");
+        Company old = companies.get(index);
+        Coordinates point = null;
+        String latText = f.getOrDefault("lat", "").trim(), lngText = f.getOrDefault("lng", "").trim();
+        if (!latText.isEmpty() || !lngText.isEmpty()) {
+            if (latText.isEmpty() || lngText.isEmpty()) return err("Enter both latitude and longitude.");
+            point = parseCoordinates(latText + "," + lngText);
+        } else {
+            point = parseCoordinates(f.getOrDefault("location", "").trim());
+        }
+        if (point == null) return err("Enter valid coordinates or a Google Maps link with coordinates.");
+        String address = clean(f.get("address"), 300);
+        if (address.isEmpty()) address = old.locationAddress();
+        if (address.length() < 3) return err("Enter the workplace address.");
+        String link = "https://www.google.com/maps?q=" + point.lat() + "," + point.lng();
+        companies.set(index, new Company(old.id(), old.name(), old.industry(), old.focus(), old.capacity(), old.email(), old.website(), old.about(),
+            point.lat(), point.lng(), address, link, now(), u.name()));
+        audit("company_location_updated", cid);
+        if (u.role().equals("COMPANY")) tellAdmins(company(cid).name() + " updated its workplace location.");
+        save();
+        return "{\"ok\":true,\"lat\":" + point.lat() + ",\"lng\":" + point.lng() + ",\"mapsLink\":" + q(link) + "}";
+    }
+
+    static boolean profileComplete(Company c) {
+        return profileDetailsComplete(c) && c.locationAddress().length() >= 3;
+    }
+
+    static boolean profileDetailsComplete(Company c) {
+        return c != null && c.industry().length() >= 2 && c.about().length() >= 10
+            && ANY_EMAIL.matcher(c.email()).matches();
+    }
+
+    static synchronized String confirmCompanyOnboarding(User u) {
+        if (!u.role().equals("COMPANY")) return err("Companies only");
+        User current = users.get(u.name());
+        Company c = company(u.ref());
+        if (current == null || c == null) return err("Company account not found");
+        if (!current.passwordChanged()) return err("Change the temporary password before continuing.");
+        if (!profileComplete(c)) return err("Complete the industry, about, contact email, and workplace address first.");
+        if (c.locationLat() == null || c.locationLng() == null) return err("Set the workplace location before continuing.");
+        users.put(current.name(), new User(current.name(), current.role(), current.ref(), current.salt(), current.hash(), false, true));
+        audit("company_onboarding_completed", current.ref());
+        tellAdmins(c.name() + " completed company onboarding.");
+        save();
+        return OK;
+    }
+
+    static synchronized String resetCompanyOnboarding(Map<String, String> f) throws Exception {
+        String cid = f.getOrDefault("cid", "");
+        Company c = company(cid);
+        String name = userOf("COMPANY", cid);
+        User current = name == null ? null : users.get(name);
+        if (c == null || current == null) return err("Company account not found.");
+        String password = tempPass();
+        users.put(name, newUser(name, "COMPANY", cid, password, true, false));
+        sessions.values().removeIf(session -> session.u().name().equals(name));
+        audit("company_onboarding_reset", cid);
+        tellCompany(cid, "Your administrator reset onboarding. Sign in with the new temporary password.");
+        save();
+        return "{\"ok\":true,\"login\":" + q(name) + ",\"password\":" + q(password) + ",\"name\":" + q(c.name()) + ",\"email\":" + q(c.email()) + "}";
     }
 
     static synchronized String addPost(Map<String, String> f, User u) {
@@ -1035,7 +1261,8 @@ public class Server {
         String pw = tempPass(), who, email;
         if (u.role().equals("COMPANY")) { who = company(u.ref()).name(); email = company(u.ref()).email(); }
         else { who = student(u.ref()).name(); email = student(u.ref()).email(); }
-        users.put(name, newUser(name, u.role(), u.ref(), pw));
+        boolean onboarding = u.role().equals("COMPANY");
+        users.put(name, newUser(name, u.role(), u.ref(), pw, onboarding, !onboarding));
         sessions.values().removeIf(t -> t.u().name().equals(name));
         resets.values().removeIf(r -> r.username().equals(name));
         save();
@@ -1049,7 +1276,13 @@ public class Server {
     }
 
     // ---------- v6: attendance (clock in / out) and final intern reports ----------
-    record Att(String sid, String cid, String clockIn, String clockOut) {}
+    record Att(String sid, String cid, String clockIn, String clockOut, Double inLat, Double inLng,
+               Double inAccuracy, Double inDistance, boolean inVerified, Double outLat, Double outLng,
+               Double outAccuracy, Double outDistance) {
+        Att(String sid, String cid, String clockIn, String clockOut) {
+            this(sid, cid, clockIn, clockOut, null, null, null, null, false, null, null, null, null);
+        }
+    }
     record Rep(String sid, String cid, String summary, String date) {}
     static final List<Att> attendance = new ArrayList<>();
     static final List<Rep> reports = new ArrayList<>();
@@ -1059,7 +1292,7 @@ public class Server {
     static String iso(String s) { return s.replace(' ', 'T').split("\\.")[0]; }
     static String hours(Att w) {
         if (w.clockOut().isEmpty()) return "";
-        return String.format("%.2f", java.time.Duration.between(java.time.LocalDateTime.parse(w.clockIn()), java.time.LocalDateTime.parse(w.clockOut())).toMinutes() / 60.0);
+        return String.format(Locale.ROOT, "%.2f", java.time.Duration.between(java.time.LocalDateTime.parse(w.clockIn()), java.time.LocalDateTime.parse(w.clockOut())).toMinutes() / 60.0);
     }
     static String pstatus(App a) {   // status of the placement this application led to ("" if none)
         for (int i = placements.size() - 1; i >= 0; i--) { Placement p = placements.get(i); if (p.sid.equals(a.sid) && p.cid.equals(a.cid)) return p.status; }
@@ -1079,13 +1312,66 @@ public class Server {
         String act = f.getOrDefault("action", "");
         if (act.equals("in")) {
             if (open >= 0) return err("You are already clocked in");
-            attendance.add(new Att(u.ref(), p.cid, now(), ""));
+            Company workplace = company(p.cid);
+            if (workplace == null || workplace.locationLat() == null || workplace.locationLng() == null) {
+                String message = student(u.ref()).name() + " tried to clock in, but " + (workplace == null ? "the assigned company" : workplace.name()) + " has no workplace location set.";
+                tellStudent(u.ref(), "Your company has not set a workplace location. Please ask them to set it before clocking in.");
+                if (workplace != null) tellCompany(workplace.id(), "A student could not clock in because your workplace location is missing. Please set it in Profile.");
+                tellAdmins(message);
+                audit("attendance_location_missing", u.ref() + " at " + p.cid);
+                save();
+                return err("Your company has not set a workplace location. Please ask them to set it before clocking in.");
+            }
+            Coordinates point = parseCoordinates(f.getOrDefault("lat", "") + "," + f.getOrDefault("lng", ""));
+            Double accuracy = finiteDouble(f.get("accuracy"));
+            long timestamp;
+            try { timestamp = Long.parseLong(f.getOrDefault("timestamp", "")); }
+            catch (NumberFormatException e) { return err("Set your location again; the timestamp is invalid."); }
+            long nowMs = System.currentTimeMillis();
+            if (point == null) return err("Set your location again; the coordinates are invalid.");
+            if (accuracy == null || accuracy < 0 || accuracy > 100) return err("Your location accuracy is too low (worse than 100 m). Move to an open area and try again.");
+            if (timestamp < nowMs - 60_000 || timestamp > nowMs + 5_000) return err("Your location fix is stale. Set your location again.");
+            double distance = distanceMeters(point.lat(), point.lng(), workplace.locationLat(), workplace.locationLng());
+            int geofence;
+            try { geofence = Integer.parseInt(setting("geofenceMeters", "100")); } catch (NumberFormatException e) { geofence = 100; }
+            if (distance > geofence) return err("You are " + Math.round(distance) + " m from the workplace; clock-in is allowed within " + geofence + " m.");
+            attendance.add(new Att(u.ref(), p.cid, now(), "", point.lat(), point.lng(), accuracy, distance, true, null, null, null, null));
+            audit("attendance_clock_in", u.ref() + " verified within " + Math.round(distance) + " m");
         } else if (act.equals("out")) {
             if (open < 0) return err("You are not clocked in");
             Att a = attendance.get(open);
-            attendance.set(open, new Att(a.sid(), a.cid(), a.clockIn(), now()));
+            Coordinates point = null;
+            String lat = f.getOrDefault("lat", "").trim(), lng = f.getOrDefault("lng", "").trim();
+            Double accuracy = finiteDouble(f.get("accuracy"));
+            if (!lat.isEmpty() || !lng.isEmpty()) {
+                point = parseCoordinates(lat + "," + lng);
+                if (point == null || accuracy == null || accuracy < 0) return err("The clock-out location is invalid. Try again or clock out without location.");
+            }
+            Company workplace = company(a.cid());
+            Double distance = point != null && workplace != null && workplace.locationLat() != null && workplace.locationLng() != null
+                ? distanceMeters(point.lat(), point.lng(), workplace.locationLat(), workplace.locationLng()) : null;
+            attendance.set(open, new Att(a.sid(), a.cid(), a.clockIn(), now(), a.inLat(), a.inLng(), a.inAccuracy(), a.inDistance(), a.inVerified(),
+                point == null ? null : point.lat(), point == null ? null : point.lng(), accuracy, distance));
+            audit("attendance_clock_out", u.ref());
         } else return err("Unknown action");
         save(); return OK;
+    }
+
+    static Double finiteDouble(String value) {
+        try {
+            double parsed = Double.parseDouble(value == null ? "" : value);
+            return Double.isFinite(parsed) ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    static double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        double p1 = Math.toRadians(lat1), p2 = Math.toRadians(lat2);
+        double dp = Math.toRadians(lat2 - lat1), dl = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dp / 2) * Math.sin(dp / 2)
+            + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
     static synchronized String startIntern(Map<String, String> f, User u) {   // COMPANY marks that the intern has started
@@ -1159,10 +1445,12 @@ public class Server {
 
     static synchronized String saveSettings(Map<String, String> f) {
         String dl = f.getOrDefault("deadline", "").trim(), rd = f.getOrDefault("retentionDays", "").trim();
+        String gm = f.getOrDefault("geofenceMeters", "").trim();
         if (!dl.isEmpty()) { try { LocalDate.parse(dl); } catch (Exception e) { return err("The deadline must be a valid date"); } }
         if (!rd.isEmpty()) { try { int n = Integer.parseInt(rd); if (n < 30 || n > 3650) return err("Keep CVs between 30 and 3650 days"); } catch (NumberFormatException e) { return err("Retention must be a number of days"); } }
-        settings.put("deadline", dl); if (!rd.isEmpty()) settings.put("retentionDays", rd);
-        audit("settings_changed", "deadline=" + dl + " retentionDays=" + rd); save(); return OK;
+        if (!gm.isEmpty()) { try { int n = Integer.parseInt(gm); if (n < 10 || n > 5000) return err("Geofence must be between 10 and 5000 metres"); } catch (NumberFormatException e) { return err("Geofence must be a number of metres"); } }
+        settings.put("deadline", dl); if (!rd.isEmpty()) settings.put("retentionDays", rd); if (!gm.isEmpty()) settings.put("geofenceMeters", gm);
+        audit("settings_changed", "deadline=" + dl + " retentionDays=" + rd + " geofenceMeters=" + setting("geofenceMeters", "100")); save(); return OK;
     }
 
     static synchronized String saveRegister(Map<String, String> f) {   // the school's own list of students allowed to sign up
@@ -1232,19 +1520,211 @@ public class Server {
         save(); return OK;
     }
 
-    static synchronized String evaluate(Map<String, String> f, User u) {   // end-of-internship evaluation form
-        String sid = f.getOrDefault("sid", "");
-        boolean mine = u.role().equals("COMPANY") && placements.stream().anyMatch(p -> p.sid.equals(sid) && p.cid.equals(u.ref()) && !p.status.equals("CANCELLED"));
-        if (!mine) return err("That student is not one of your interns");
-        int[] sc = new int[4]; String[] k = {"punctuality", "skills", "attitude", "teamwork"};
-        for (int i = 0; i < 4; i++) {
-            try { sc[i] = Integer.parseInt(f.getOrDefault(k[i], "")); } catch (NumberFormatException e) { sc[i] = 0; }
-            if (sc[i] < 1 || sc[i] > 5) return err("Rate every area from 1 to 5");
+    static EvaluationForm activeEvaluationForm() {
+        return evaluationForms.stream().filter(form -> form.status().equals("ACTIVE")).findFirst().orElse(null);
+    }
+
+    static long evaluationResponseCount(String formId) {
+        return evaluationResponses.stream().filter(response -> response.formId().equals(formId)).count();
+    }
+
+    static String evaluationFormJson(EvaluationForm form) {
+        return "{\"id\":" + q(form.id()) + ",\"title\":" + q(form.title()) + ",\"status\":" + q(form.status())
+            + ",\"createdOn\":" + q(form.createdOn()) + ",\"responses\":" + evaluationResponseCount(form.id())
+            + ",\"questions\":" + arr(evaluationQuestions.stream().filter(question -> question.formId().equals(form.id()))
+                .sorted(Comparator.comparingInt(EvaluationQuestion::order)), question -> "{\"id\":" + q(question.id())
+                    + ",\"prompt\":" + q(question.prompt()) + ",\"type\":" + q(question.type())
+                    + ",\"required\":" + question.required() + ",\"order\":" + question.order()
+                    + ",\"options\":" + arr(Arrays.stream(question.options().split("\\n")).filter(option -> !option.isBlank()), Server::q) + "}") + "}";
+    }
+
+    static synchronized void evaluationForms(HttpExchange x, User u) throws IOException {
+        if (!(u.role().equals("ADMIN") || u.role().equals("COMPANY"))) { json(x, 403, err("Evaluations are available to companies and administrators only.")); return; }
+        EvaluationForm active = activeEvaluationForm();
+        if (u.role().equals("COMPANY")) {
+            json(x, 200, "{\"active\":" + (active == null ? "null" : evaluationFormJson(active)) + "}");
+            return;
         }
-        evals.removeIf(v -> v.sid().equals(sid) && v.cid().equals(u.ref()));
-        evals.add(new Eval(sid, u.ref(), sc[0], sc[1], sc[2], sc[3], clean(f.get("comment"), 500), today()));
-        audit("evaluation", sid + " by " + u.ref()); tellAdmins("An evaluation was submitted for " + student(sid).name() + ".");
-        save(); return OK;
+        json(x, 200, "{\"forms\":" + arr(evaluationForms.stream().sorted(Comparator.comparing(EvaluationForm::createdOn).reversed()), Server::evaluationFormJson)
+            + ",\"active\":" + (active == null ? "null" : evaluationFormJson(active)) + "}");
+    }
+
+    static synchronized String saveEvaluationForm(Map<String, String> f) {
+        String id = f.getOrDefault("id", "").trim();
+        EvaluationForm current = id.isEmpty() ? null : evaluationForms.stream().filter(form -> form.id().equals(id)).findFirst().orElse(null);
+        if (!id.isEmpty() && current == null) return err("Evaluation form not found.");
+        if (current != null && current.status().equals("ARCHIVED")) return err("Archived forms cannot be edited.");
+        if (current != null && evaluationResponseCount(id) > 0) return err("This form already has responses. Duplicate it to make changes.");
+        String rawTitle = f.getOrDefault("title", "");
+        if (rawTitle.length() > 100) return err("Form titles must be 100 characters or fewer.");
+        String title = clean(rawTitle, 100), status = f.getOrDefault("status", "DRAFT").toUpperCase(Locale.ROOT);
+        if (title.length() < 3) return err("Enter an evaluation form title.");
+        if (!Set.of("DRAFT", "ACTIVE").contains(status)) return err("Form status must be DRAFT or ACTIVE.");
+        int count;
+        try { count = Integer.parseInt(f.getOrDefault("questionCount", "")); }
+        catch (NumberFormatException e) { return err("Add at least one evaluation question."); }
+        if (count < 1 || count > 30) return err("Forms must have between 1 and 30 questions.");
+        List<EvaluationQuestion> questions = new ArrayList<>();
+        Set<String> allowedTypes = Set.of("rating", "short_text", "long_text", "single_choice", "yes_no");
+        String formId = current == null ? nid("EF", evaluationForms.stream().map(EvaluationForm::id)) : current.id();
+        for (int i = 0; i < count; i++) {
+            String rawPrompt = f.getOrDefault("q" + i + "Prompt", ""), type = f.getOrDefault("q" + i + "Type", "").trim();
+            if (rawPrompt.length() > 300) return err("Question prompts must be 300 characters or fewer.");
+            String prompt = clean(rawPrompt, 300);
+            if (prompt.length() < 2 || !allowedTypes.contains(type)) return err("Question " + (i + 1) + " needs a prompt and a supported type.");
+            List<String> options = new ArrayList<>();
+            for (String rawOption : f.getOrDefault("q" + i + "Options", "").split("[\\r\\n]+")) {
+                if (rawOption.length() > 80) return err("Choice options must be 80 characters or fewer.");
+                String option = clean(rawOption, 80);
+                if (!option.isEmpty() && options.stream().noneMatch(existing -> existing.equalsIgnoreCase(option))) options.add(option);
+            }
+            if (type.equals("single_choice") && (options.size() < 2 || options.size() > 20)) return err("Single-choice questions need 2 to 20 options.");
+            if (!type.equals("single_choice")) options.clear();
+            String questionId = nid("EQ", Stream.concat(evaluationQuestions.stream().map(EvaluationQuestion::id), questions.stream().map(EvaluationQuestion::id)));
+            questions.add(new EvaluationQuestion(questionId, formId, prompt, type,
+                "1".equals(f.get("q" + i + "Required")), i + 1, String.join("\n", options)));
+        }
+        if (status.equals("ACTIVE")) evaluationForms.replaceAll(form -> form.status().equals("ACTIVE")
+            ? new EvaluationForm(form.id(), form.title(), "ARCHIVED", form.createdOn()) : form);
+        if (current == null) evaluationForms.add(new EvaluationForm(formId, title, status, today()));
+        else evaluationForms.replaceAll(form -> form.id().equals(formId) ? new EvaluationForm(formId, title, status, form.createdOn()) : form);
+        evaluationQuestions.removeIf(question -> question.formId().equals(formId));
+        evaluationQuestions.addAll(questions);
+        audit(current == null ? "evaluation_form_created" : "evaluation_form_updated", formId + " " + title);
+        save();
+        return "{\"ok\":true,\"id\":" + q(formId) + "}";
+    }
+
+    static synchronized String duplicateEvaluationForm(Map<String, String> f) {
+        EvaluationForm source = evaluationForms.stream().filter(form -> form.id().equals(f.getOrDefault("id", ""))).findFirst().orElse(null);
+        if (source == null) return err("Evaluation form not found.");
+        String newId = nid("EF", evaluationForms.stream().map(EvaluationForm::id));
+        evaluationForms.add(new EvaluationForm(newId, clean(source.title() + " copy", 100), "DRAFT", today()));
+        List<EvaluationQuestion> copies = new ArrayList<>();
+        for (EvaluationQuestion question : evaluationQuestions.stream().filter(item -> item.formId().equals(source.id())).toList()) {
+            String newQuestionId = nid("EQ", Stream.concat(evaluationQuestions.stream().map(EvaluationQuestion::id), copies.stream().map(EvaluationQuestion::id)));
+            copies.add(new EvaluationQuestion(newQuestionId, newId, question.prompt(), question.type(), question.required(), question.order(), question.options()));
+        }
+        evaluationQuestions.addAll(copies);
+        audit("evaluation_form_duplicated", source.id() + " as " + newId);
+        save();
+        return "{\"ok\":true,\"id\":" + q(newId) + "}";
+    }
+
+    static synchronized String archiveEvaluationForm(Map<String, String> f) {
+        String id = f.getOrDefault("id", "");
+        EvaluationForm form = evaluationForms.stream().filter(item -> item.id().equals(id)).findFirst().orElse(null);
+        if (form == null) return err("Evaluation form not found.");
+        evaluationForms.replaceAll(item -> item.id().equals(id) ? new EvaluationForm(item.id(), item.title(), "ARCHIVED", item.createdOn()) : item);
+        audit("evaluation_form_archived", id);
+        save();
+        return OK;
+    }
+
+    static boolean evaluationEligible(Placement placement) {
+        if (placement.status.equals("COMPLETED")) return true;
+        if (placement.end == null || placement.end.isBlank()) return false;
+        try { return !LocalDate.parse(placement.end).isAfter(LocalDate.now()); }
+        catch (Exception e) { return false; }
+    }
+
+    static synchronized String submitEvaluation(Map<String, String> f, User u) {
+        String sid = f.getOrDefault("sid", ""), formId = f.getOrDefault("formId", "");
+        if (!u.role().equals("COMPANY")) return err("Companies only.");
+        Placement placement = placements.stream().filter(item -> item.sid.equals(sid) && item.cid.equals(u.ref()) && !item.status.equals("CANCELLED"))
+            .findFirst().orElse(null);
+        if (placement == null) return err("That student is not one of your interns.");
+        if (!evaluationEligible(placement)) return err("An evaluation is available only after the internship is completed or its end date has passed.");
+        if (evaluationResponses.stream().anyMatch(response -> response.sid().equals(sid) && response.cid().equals(u.ref())))
+            return err("This intern has already been evaluated. The submission is locked.");
+        EvaluationForm form = activeEvaluationForm();
+        if (form == null || !form.id().equals(formId)) return err("The active evaluation form changed. Reload and try again.");
+        List<EvaluationQuestion> questions = evaluationQuestions.stream().filter(question -> question.formId().equals(form.id()))
+            .sorted(Comparator.comparingInt(EvaluationQuestion::order)).toList();
+        if (questions.isEmpty()) return err("The active evaluation form has no questions.");
+        List<String> answers = new ArrayList<>();
+        for (EvaluationQuestion question : questions) {
+            String value = f.getOrDefault("a_" + question.id(), "").trim();
+            if (question.required() && value.isEmpty()) return err("Answer the required question: " + question.prompt());
+            if (value.isEmpty()) { answers.add(q(question.id()) + ":null"); continue; }
+            switch (question.type()) {
+                case "rating" -> {
+                    int rating;
+                    try { rating = Integer.parseInt(value); } catch (NumberFormatException e) { return err("Ratings must be whole numbers from 1 to 5."); }
+                    if (rating < 1 || rating > 5) return err("Ratings must be from 1 to 5.");
+                    answers.add(q(question.id()) + ":" + rating);
+                }
+                case "short_text" -> {
+                    if (value.length() > 200) return err("Short answers must be 200 characters or fewer.");
+                    value = clean(value, 200);
+                    answers.add(q(question.id()) + ":" + q(value));
+                }
+                case "long_text" -> {
+                    if (value.length() > 2000) return err("Long answers must be 2000 characters or fewer.");
+                    value = clean(value, 2000);
+                    answers.add(q(question.id()) + ":" + q(value));
+                }
+                case "single_choice" -> {
+                    List<String> options = Arrays.stream(question.options().split("\\n")).toList();
+                    if (!options.contains(value)) return err("Choose a valid option for: " + question.prompt());
+                    answers.add(q(question.id()) + ":" + q(value));
+                }
+                case "yes_no" -> {
+                    if (!(value.equalsIgnoreCase("yes") || value.equalsIgnoreCase("no"))) return err("Choose Yes or No for: " + question.prompt());
+                    answers.add(q(question.id()) + ":" + q(value.equalsIgnoreCase("yes") ? "Yes" : "No"));
+                }
+                default -> { return err("Unsupported evaluation question type."); }
+            }
+        }
+        String json = "{" + String.join(",", answers) + "}";
+        evaluationResponses.add(new EvaluationResponse(sid, u.ref(), form.id(), json, now()));
+        audit("evaluation_submitted", sid + " by " + u.ref());
+        tellAdmins("An evaluation was submitted for " + student(sid).name() + ".");
+        save();
+        return OK;
+    }
+
+    static Double responseRating(EvaluationResponse response, String questionId) {
+        Matcher matcher = Pattern.compile("\"" + Pattern.quote(questionId) + "\"\\s*:\\s*(\\d+)").matcher(response.answers());
+        if (!matcher.find()) return null;
+        try { return Double.valueOf(matcher.group(1)); } catch (NumberFormatException e) { return null; }
+    }
+
+    static synchronized void evaluationReport(HttpExchange x, User u) throws IOException {
+        if (!u.role().equals("ADMIN")) { json(x, 403, err("Administrators only.")); return; }
+        List<EvaluationResponse> responses = evaluationResponses.stream().sorted(Comparator.comparing(EvaluationResponse::submittedOn).reversed()).toList();
+        List<EvaluationQuestion> ratings = evaluationQuestions.stream().filter(question -> question.type().equals("rating")).toList();
+        double[] totals = {0, 0};
+        Map<String, double[]> byStudent = new TreeMap<>(String.CASE_INSENSITIVE_ORDER), byCompany = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        String rows = arr(responses.stream(), response -> {
+            double sum = 0; int count = 0;
+            for (EvaluationQuestion question : ratings) {
+                if (!question.formId().equals(response.formId())) continue;
+                Double rating = responseRating(response, question.id());
+                if (rating != null) { sum += rating; count++; }
+            }
+            totals[0] += sum; totals[1] += count;
+            byStudent.computeIfAbsent(response.sid(), key -> new double[2]);
+            byCompany.computeIfAbsent(response.cid(), key -> new double[2]);
+            byStudent.get(response.sid())[0] += sum; byStudent.get(response.sid())[1] += count;
+            byCompany.get(response.cid())[0] += sum; byCompany.get(response.cid())[1] += count;
+            Student st = student(response.sid()); Company c = company(response.cid());
+            EvaluationForm form = evaluationForms.stream().filter(item -> item.id().equals(response.formId())).findFirst().orElse(null);
+            return "{\"sid\":" + q(response.sid()) + ",\"student\":" + q(st == null ? "" : st.name())
+                + ",\"studentEmail\":" + q(st == null ? "" : st.email()) + ",\"cid\":" + q(response.cid())
+                + ",\"company\":" + q(c == null ? "" : c.name()) + ",\"companyEmail\":" + q(c == null ? "" : c.email())
+                + ",\"formId\":" + q(response.formId()) + ",\"form\":" + q(form == null ? "" : form.title())
+                + ",\"answers\":" + q(response.answers()) + ",\"date\":" + q(response.submittedOn()) + "}";
+        });
+        String studentsJson = arr(byStudent.entrySet().stream(), entry -> "{\"id\":" + q(entry.getKey()) + ",\"name\":" + q(student(entry.getKey()).name())
+            + ",\"email\":" + q(student(entry.getKey()).email()) + ",\"responses\":" + responses.stream().filter(response -> response.sid().equals(entry.getKey())).count()
+            + ",\"averageRating\":" + (entry.getValue()[1] == 0 ? "null" : String.format(Locale.ROOT, "%.2f", entry.getValue()[0] / entry.getValue()[1])) + "}");
+        String companiesJson = arr(byCompany.entrySet().stream(), entry -> "{\"id\":" + q(entry.getKey()) + ",\"name\":" + q(company(entry.getKey()).name())
+            + ",\"email\":" + q(company(entry.getKey()).email()) + ",\"responses\":" + responses.stream().filter(response -> response.cid().equals(entry.getKey())).count()
+            + ",\"averageRating\":" + (entry.getValue()[1] == 0 ? "null" : String.format(Locale.ROOT, "%.2f", entry.getValue()[0] / entry.getValue()[1])) + "}");
+        json(x, 200, "{\"responses\":" + rows + ",\"byStudent\":" + studentsJson + ",\"byCompany\":" + companiesJson
+            + ",\"aggregate\":{\"responses\":" + responses.size() + ",\"averageRating\":"
+            + (totals[1] == 0 ? "null" : String.format(Locale.ROOT, "%.2f", totals[0] / totals[1])) + "}}");
     }
 
     static synchronized String addLog(Map<String, String> f, User u) {   // student's weekly logbook entry
@@ -1278,32 +1758,139 @@ public class Server {
         return "\"" + s.replace("\"", "\"\"") + "\"";
     }
 
+    static String htmlCell(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    }
+
+    static String auditEmail(String actor) {
+        User user = users.get(actor);
+        if (user == null) return ANY_EMAIL.matcher(actor).matches() ? actor : "";
+        if (user.role().equals("COMPANY")) {
+            Company company = company(user.ref());
+            return company == null ? "" : company.email();
+        }
+        if (user.role().equals("STUDENT")) {
+            Student student = student(user.ref());
+            return student == null ? "" : student.email();
+        }
+        return ANY_EMAIL.matcher(actor).matches() ? actor : "";
+    }
+
     static synchronized void export(HttpExchange x) throws IOException {
         Map<String, String> qp = query(x);
         String t = qp.getOrDefault("type", ""), from = qp.getOrDefault("from", ""), to = qp.getOrDefault("to", "");
-        java.util.function.Predicate<String> within = d -> (from.isEmpty() || d.compareTo(from) >= 0) && (to.isEmpty() || d.compareTo(to + "~") <= 0);   // dates are ISO text; "~" sorts after any time of day
+        String search = qp.getOrDefault("search", "").trim().toLowerCase(Locale.ROOT);
+        String cid = qp.getOrDefault("cid", ""), sid = qp.getOrDefault("sid", "");
+        String status = qp.getOrDefault("status", ""), location = qp.getOrDefault("location", "");
+        String sort = qp.getOrDefault("sort", "name"), direction = qp.getOrDefault("direction", "asc");
+        boolean descending = direction.equalsIgnoreCase("desc");
+        java.util.function.Predicate<String> within = d -> {
+            String date = d == null ? "" : d.substring(0, Math.min(10, d.length()));
+            return (from.isEmpty() || date.compareTo(from) >= 0) && (to.isEmpty() || date.compareTo(to) <= 0);
+        };
         List<String[]> rows = new ArrayList<>();
         switch (t) {
-            case "students" -> { rows.add(new String[]{"ID", "Name", "Programme", "Email", "Placed"});
-                students.forEach(s -> rows.add(new String[]{s.id(), s.name(), s.program(), s.email(), active(s.id()) != null ? "Yes" : "No"})); }
-            case "companies" -> { rows.add(new String[]{"ID", "Name", "Industry", "Focus", "Capacity", "Filled"});
-                companies.forEach(c -> rows.add(new String[]{c.id(), c.name(), c.industry(), c.focus(), "" + c.capacity(), "" + filled(c.id())})); }
-            case "placements" -> { rows.add(new String[]{"Student", "Programme", "Company", "Status", "Placed on", "Start", "End"});
-                placements.stream().filter(p -> within.test(p.date)).forEach(p -> rows.add(new String[]{student(p.sid).name(), student(p.sid).program(), company(p.cid).name(), p.status, p.date, p.start, p.end})); }
-            case "applications" -> { rows.add(new String[]{"Ref", "Student", "Programme", "Company", "Status", "Updated"});
-                apps.stream().filter(a -> within.test(a.date)).forEach(a -> rows.add(new String[]{a.id, student(a.sid).name(), student(a.sid).program(), cname(a), a.status, a.date})); }
-            case "attendance" -> { rows.add(new String[]{"Student", "Company", "Clock in", "Clock out", "Hours"});
-                attendance.stream().filter(w -> within.test(w.clockIn())).forEach(w -> rows.add(new String[]{student(w.sid()).name(), company(w.cid()).name(), w.clockIn().replace('T', ' '), w.clockOut().replace('T', ' '), hours(w)})); }
-            case "evaluations" -> { rows.add(new String[]{"Student", "Company", "Punctuality", "Skills", "Attitude", "Teamwork", "Average", "Comment", "Date"});
-                evals.stream().filter(v -> within.test(v.date())).forEach(v -> rows.add(new String[]{student(v.sid()).name(), company(v.cid()).name(), "" + v.punctuality(), "" + v.skills(), "" + v.attitude(), "" + v.teamwork(),
-                    String.format("%.2f", (v.punctuality() + v.skills() + v.attitude() + v.teamwork()) / 4.0), v.comment(), v.date()})); }
-            case "audit" -> { rows.add(new String[]{"When", "Who", "Action", "Detail"});
-                audits.stream().filter(a -> within.test(a.at())).forEach(a -> rows.add(new String[]{a.at().replace('T', ' '), a.actor(), a.action(), a.detail()})); }
+            case "students" -> {
+                rows.add(new String[]{"ID", "Name", "Email", "Programme", "Placed"});
+                students.forEach(student -> rows.add(new String[]{student.id(), student.name(), student.email(), student.program(), active(student.id()) != null ? "Yes" : "No"}));
+            }
+            case "companies" -> {
+                rows.add(new String[]{"ID", "Name", "Email", "Industry", "Focus", "Capacity", "Filled"});
+                companies.forEach(company -> rows.add(new String[]{company.id(), company.name(), company.email(), company.industry(), company.focus(), "" + company.capacity(), "" + filled(company.id())}));
+            }
+            case "placements" -> {
+                rows.add(new String[]{"Student", "Student email", "Company", "Company email", "Programme", "Status", "Placed on", "Start", "End"});
+                placements.stream().filter(placement -> within.test(placement.date)).forEach(placement -> {
+                    Student student = student(placement.sid); Company company = company(placement.cid);
+                    rows.add(new String[]{student.name(), student.email(), company.name(), company.email(), student.program(), placement.status, placement.date, placement.start, placement.end});
+                });
+            }
+            case "applications" -> {
+                rows.add(new String[]{"Ref", "Student", "Student email", "Company", "Company email", "Programme", "Status", "Updated"});
+                apps.stream().filter(application -> within.test(application.date)).forEach(application -> {
+                    Student student = student(application.sid); Company company = company(application.cid);
+                    rows.add(new String[]{application.id, student.name(), student.email(), cname(application), company == null ? "" : company.email(),
+                        student.program(), application.status, application.date});
+                });
+            }
+            case "attendance" -> {
+                rows.add(new String[]{"Student", "Student email", "Company", "Company email", "Clock in", "Clock out", "Hours", "Status", "Location verification", "Distance (m)"});
+                attendance.stream().filter(record -> within.test(record.clockIn()))
+                    .filter(record -> sid.isEmpty() || sid.equals(record.sid()))
+                    .filter(record -> cid.isEmpty() || cid.equals(record.cid()))
+                    .filter(record -> search.isEmpty() || (student(record.sid()).name() + " " + student(record.sid()).email() + " " + record.sid()).toLowerCase(Locale.ROOT).contains(search))
+                    .filter(record -> status.isEmpty() || (status.equals("clocked_in") ? record.clockOut().isEmpty()
+                        : status.equals("completed") ? !record.clockOut().isEmpty() : status.equals("flagged") && !record.inVerified()))
+                    .filter(record -> location.isEmpty() || (location.equals("verified") ? record.inVerified() : location.equals("failed") && !record.inVerified()))
+                    .forEach(record -> {
+                        Student student = student(record.sid()); Company company = company(record.cid());
+                        rows.add(new String[]{student.name(), student.email(), company.name(), company.email(), record.clockIn().replace('T', ' '),
+                            record.clockOut().replace('T', ' '), hours(record), record.clockOut().isEmpty() ? "Clocked in" : "Completed",
+                            record.inVerified() ? "Verified on site" : "Failed / not verified",
+                            record.inDistance() == null ? "" : String.format(Locale.ROOT, "%.1f", record.inDistance())});
+                    });
+            }
+            case "evaluations" -> {
+                rows.add(new String[]{"Student", "Student email", "Company", "Company email", "Form", "Answers", "Submitted"});
+                evaluationResponses.stream().filter(response -> within.test(response.submittedOn())).forEach(response -> {
+                    Student student = student(response.sid()); Company company = company(response.cid());
+                    EvaluationForm form = evaluationForms.stream().filter(item -> item.id().equals(response.formId())).findFirst().orElse(null);
+                    rows.add(new String[]{student == null ? "" : student.name(), student == null ? "" : student.email(),
+                        company == null ? "" : company.name(), company == null ? "" : company.email(), form == null ? "" : form.title(),
+                        response.answers(), response.submittedOn().replace('T', ' ')});
+                });
+            }
+            case "reports" -> {
+                rows.add(new String[]{"Student", "Student email", "Company", "Company email", "Summary", "Date"});
+                reports.stream().filter(record -> within.test(record.date())).forEach(record -> rows.add(new String[]{
+                    student(record.sid()).name(), student(record.sid()).email(), company(record.cid()).name(), company(record.cid()).email(), record.summary(), record.date()}));
+            }
+            case "audit" -> {
+                rows.add(new String[]{"When", "Actor", "Email", "Action", "Detail"});
+                audits.stream().filter(record -> within.test(record.at())).forEach(record -> rows.add(new String[]{
+                    record.at().replace('T', ' '), record.actor(), auditEmail(record.actor()), record.action(), record.detail()}));
+            }
             default -> { json(x, 400, err("Unknown report")); return; }
+        }
+        int nameIndex = switch (t) { case "students", "companies" -> 1; case "placements" -> 0; case "applications" -> 1;
+            case "attendance", "evaluations", "reports" -> 0; case "audit" -> 1; default -> 0; };
+        int emailIndex = switch (t) { case "students", "companies" -> 2; case "placements" -> 1; case "applications" -> 2;
+            case "attendance", "evaluations", "reports" -> 1; case "audit" -> 2; default -> 0; };
+        int companyIndex = t.equals("attendance") ? 2 : nameIndex;
+        int dateIndex = t.equals("attendance") ? 4 : -1;
+        int hoursIndex = t.equals("attendance") ? 6 : -1;
+        Collator collator = Collator.getInstance(Locale.ROOT);
+        collator.setStrength(Collator.SECONDARY);
+        collator.setDecomposition(Collator.CANONICAL_DECOMPOSITION);
+        Comparator<String[]> comparator;
+        if (t.equals("attendance") && sort.equals("date")) comparator = Comparator.comparing(row -> row[dateIndex]);
+        else if (t.equals("attendance") && sort.equals("hours")) comparator = Comparator.comparingDouble(row -> row[hoursIndex].isEmpty() ? -1 : Double.parseDouble(row[hoursIndex]));
+        else if (t.equals("attendance") && sort.equals("company")) comparator = (a, b) -> collator.compare(a[companyIndex], b[companyIndex]);
+        else comparator = (a, b) -> collator.compare(a[sort.equals("email") ? emailIndex : nameIndex], b[sort.equals("email") ? emailIndex : nameIndex]);
+        if (descending) comparator = comparator.reversed();
+        if (rows.size() > 1) rows.subList(1, rows.size()).sort(comparator.thenComparing(row -> row[nameIndex], collator));
+        if (qp.getOrDefault("format", "").equals("print")) {
+            StringBuilder html = new StringBuilder("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Palm ")
+                .append(htmlCell(t)).append(" report · ").append(today())
+                .append("</title><style>body{font:14px Arial,sans-serif;color:#14251c;margin:2rem}h1{color:#0a3d2b}p{color:#53645a}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd5cf;padding:.55rem;text-align:left;vertical-align:top}th{background:#edf3ef}button{padding:.6rem 1rem;margin-bottom:1rem}@media print{body{margin:0}button{display:none}thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body><button onclick=\"window.print()\">Print / Save as PDF</button><h1>Palm ")
+                .append(htmlCell(t)).append(" report</h1><p>Generated ").append(java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
+                .append(" · ").append(rows.size() - 1).append(" records</p><table><thead><tr>");
+            for (String column : rows.get(0)) html.append("<th>").append(htmlCell(column)).append("</th>");
+            html.append("</tr></thead><tbody>");
+            for (int i = 1; i < rows.size(); i++) {
+                html.append("<tr>");
+                for (String value : rows.get(i)) html.append("<td>").append(htmlCell(value)).append("</td>");
+                html.append("</tr>");
+            }
+            html.append("</tbody></table></body></html>");
+            audit("export_print", t + " " + from + " " + to);
+            x.getResponseHeaders().set("Content-Disposition", "inline; filename=\"palm-" + t + "-" + today() + ".html\"");
+            send(x, 200, "text/html", html.toString().getBytes(StandardCharsets.UTF_8));
+            return;
         }
         String csv = rows.stream().map(r -> Arrays.stream(r).map(Server::cell).collect(Collectors.joining(","))).collect(Collectors.joining("\r\n"));
         audit("export", t + " " + from + " " + to);
-        x.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"palm-" + t + ".csv\"");
+        x.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"palm-" + t + "-" + today() + ".csv\"");
         send(x, 200, "text/csv", ("\uFEFF" + csv).getBytes(StandardCharsets.UTF_8));
     }
 
@@ -1346,6 +1933,7 @@ public class Server {
         }
     }
     static String d(String s) { return s == null || s.isEmpty() ? null : s; }   // an empty date is stored as NULL
+    static Double nullableDouble(String s) { return s == null || s.isEmpty() ? null : Double.valueOf(s); }
     static String b64(byte[] b) { return Base64.getEncoder().encodeToString(b); }
     static String quoteIdentifiers(String names) {
         String quote = PG ? "\"" : "`";
@@ -1388,12 +1976,15 @@ public class Server {
         new Tbl("students", "id,name,program,email", "id",
             () -> students.stream().map(s -> new Object[]{s.id(), s.name(), s.program(), s.email()}).toList(),
             r -> students.add(new Student(r[0], r[1], r[2], r[3]))),
-        new Tbl("companies", "id,name,industry,focus,capacity,email,website,about", "id",
-            () -> companies.stream().map(c -> new Object[]{c.id(), c.name(), c.industry(), c.focus(), c.capacity(), c.email(), c.website(), c.about()}).toList(),
-            r -> companies.add(new Company(r[0], r[1], r[2], r[3], Integer.parseInt(r[4]), r[5], r[6], r[7]))),
-        new Tbl("users", "username,role,ref,salt,pass_hash", "username",
-            () -> users.values().stream().filter(u -> !u.name().equals("admin")).map(u -> new Object[]{u.name(), u.role(), u.ref(), u.salt(), u.hash()}).toList(),
-            r -> users.put(r[0], new User(r[0], r[1], r[2], Base64.getDecoder().decode(r[3]), Base64.getDecoder().decode(r[4])))),
+        new Tbl("companies", "id,name,industry,focus,capacity,email,website,about,location_lat,location_lng,location_address,maps_link,location_set_on,location_set_by", "id",
+            () -> companies.stream().map(c -> new Object[]{c.id(), c.name(), c.industry(), c.focus(), c.capacity(), c.email(), c.website(), c.about(),
+                c.locationLat(), c.locationLng(), c.locationAddress(), c.mapsLink(), d(c.locationSetOn().replace('T', ' ')), c.locationSetBy()}).toList(),
+            r -> companies.add(new Company(r[0], r[1], r[2], r[3], Integer.parseInt(r[4]), r[5], r[6], r[7],
+                nullableDouble(r[8]), nullableDouble(r[9]), r[10], r[11], r[12].isEmpty() ? "" : iso(r[12]), r[13]))),
+        new Tbl("users", "username,role,ref,salt,pass_hash,must_onboard,password_changed", "username",
+            () -> users.values().stream().filter(u -> !u.name().equals("admin")).map(u -> new Object[]{u.name(), u.role(), u.ref(), u.salt(), u.hash(), u.mustOnboard() ? 1 : 0, u.passwordChanged() ? 1 : 0}).toList(),
+            r -> users.put(r[0], new User(r[0], r[1], r[2], Base64.getDecoder().decode(r[3]), Base64.getDecoder().decode(r[4]),
+                r[5].equals("1") || r[5].equalsIgnoreCase("true"), r[6].equals("1") || r[6].equalsIgnoreCase("true")))),
         new Tbl("unverified", "username", "username", () -> unverified.stream().map(u -> new Object[]{u}).toList(), r -> unverified.add(r[0])),
         new Tbl("applications", "id,student_id,company_id,pref,statement,status,updated_on,school_note,company_note", "id",
             () -> apps.stream().map(a -> new Object[]{a.id, a.sid, a.cid, a.pref, a.statement, a.status, a.date, a.schoolNote, a.companyNote}).toList(),
@@ -1401,9 +1992,11 @@ public class Server {
         new Tbl("placements", "student_id,company_id,status,placed_on,start_date,end_date", "id",
             () -> placements.stream().map(p -> new Object[]{p.sid, p.cid, p.status, p.date, d(p.start), d(p.end)}).toList(),
             r -> { Placement p = new Placement(r[0], r[1], r[2], r[3]); p.start = r[4]; p.end = r[5]; placements.add(p); }),
-        new Tbl("attendance", "student_id,company_id,clock_in,clock_out", "id",
-            () -> attendance.stream().map(w -> new Object[]{w.sid(), w.cid(), w.clockIn().replace('T', ' '), d(w.clockOut().replace('T', ' '))}).toList(),
-            r -> attendance.add(new Att(r[0], r[1], iso(r[2]), r[3].isEmpty() ? "" : iso(r[3])))),
+        new Tbl("attendance", "student_id,company_id,clock_in,clock_out,in_lat,in_lng,in_accuracy,in_distance,in_verified,out_lat,out_lng,out_accuracy,out_distance", "id",
+            () -> attendance.stream().map(w -> new Object[]{w.sid(), w.cid(), w.clockIn().replace('T', ' '), d(w.clockOut().replace('T', ' ')),
+                w.inLat(), w.inLng(), w.inAccuracy(), w.inDistance(), w.inVerified() ? 1 : 0, w.outLat(), w.outLng(), w.outAccuracy(), w.outDistance()}).toList(),
+            r -> attendance.add(new Att(r[0], r[1], iso(r[2]), r[3].isEmpty() ? "" : iso(r[3]), nullableDouble(r[4]), nullableDouble(r[5]),
+                nullableDouble(r[6]), nullableDouble(r[7]), r[8].equals("1") || r[8].equalsIgnoreCase("true"), nullableDouble(r[9]), nullableDouble(r[10]), nullableDouble(r[11]), nullableDouble(r[12])))),
         new Tbl("reports", "student_id,company_id,summary,reported_on", "student_id,company_id",
             () -> reports.stream().map(k -> new Object[]{k.sid(), k.cid(), k.summary(), k.date()}).toList(),
             r -> reports.add(new Rep(r[0], r[1], r[2], r[3]))),
@@ -1416,6 +2009,15 @@ public class Server {
         new Tbl("evaluations", "student_id,company_id,punctuality,skills,attitude,teamwork,comment,created_on", "student_id,company_id",
             () -> evals.stream().map(v -> new Object[]{v.sid(), v.cid(), v.punctuality(), v.skills(), v.attitude(), v.teamwork(), v.comment(), v.date()}).toList(),
             r -> evals.add(new Eval(r[0], r[1], Integer.parseInt(r[2]), Integer.parseInt(r[3]), Integer.parseInt(r[4]), Integer.parseInt(r[5]), r[6], r[7]))),
+        new Tbl("evaluation_forms", "id,title,status,created_on", "id",
+            () -> evaluationForms.stream().map(f -> new Object[]{f.id(), f.title(), f.status(), f.createdOn()}).toList(),
+            r -> evaluationForms.add(new EvaluationForm(r[0], r[1], r[2], r[3]))),
+        new Tbl("evaluation_questions", "id,form_id,prompt,question_type,is_required,sort_order,options_text", "id",
+            () -> evaluationQuestions.stream().map(q -> new Object[]{q.id(), q.formId(), q.prompt(), q.type(), q.required() ? 1 : 0, q.order(), q.options()}).toList(),
+            r -> evaluationQuestions.add(new EvaluationQuestion(r[0], r[1], r[2], r[3], r[4].equals("1") || r[4].equalsIgnoreCase("true"), Integer.parseInt(r[5]), r[6]))),
+        new Tbl("evaluation_responses", "student_id,company_id,form_id,answers,submitted_on", "student_id,company_id",
+            () -> evaluationResponses.stream().map(r -> new Object[]{r.sid(), r.cid(), r.formId(), r.answers(), r.submittedOn().replace('T', ' ')}).toList(),
+            r -> evaluationResponses.add(new EvaluationResponse(r[0], r[1], r[2], r[3], iso(r[4])))),
         new Tbl("notifications", "username,created_at,text,is_read", "id",
             () -> notes.stream().map(n -> new Object[]{n.user(), n.at().replace('T', ' '), n.text(), n.read() ? 1 : 0}).toList(),
             r -> notes.add(new Note(r[0], iso(r[1]), r[2], r[3].equals("1") || r[3].equalsIgnoreCase("true")))),
@@ -1455,6 +2057,7 @@ public class Server {
 
     static void clearAll() {
         students.clear(); companies.clear(); placements.clear(); apps.clear(); attendance.clear(); reports.clear(); posts.clear(); logs.clear(); evals.clear();
+        evaluationForms.clear(); evaluationQuestions.clear(); evaluationResponses.clear();
         notes.clear(); audits.clear(); settings.clear(); register.clear(); accessRequests.clear(); unverified.clear(); users.values().removeIf(u -> !u.name().equals("admin"));
     }
 
