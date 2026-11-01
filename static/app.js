@@ -1,12 +1,9 @@
 'use strict';
 // Works two ways: served by the Java server itself, or opened with VS Code Live Server (API found on ports 8080-8099).
 let BASE = null, token = '', openGroups = new Set(), menuOpen = false, lastTab = '', tabHistory = [], suppressTabHistory = false, editingProfile = false, onboardingEditStep = '', onboardingGps = null, editingCompanyLocation = false, profileGps = null, attendanceFix = null, attendanceMessage = '', attendanceMessageError = false;
-<<<<<<< HEAD
 let beginLoginExperience = () => {}, stopLoginExperience = () => {}, returnLoginHome = () => {};
 if (performance.getEntriesByType('navigation')[0]?.type === 'reload') sessionStorage.removeItem('palmLoginWelcomePlayed');
 window.addEventListener('pagehide', () => sessionStorage.removeItem('palmLoginWelcomePlayed'), { once: true });
-=======
->>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
 async function findApi() {
   const host = location.hostname || 'localhost';
   const ping = async b => {
@@ -142,89 +139,6 @@ const openCompanyEvaluation = async sid => {
     activeCompanyEvaluation = { sid, form: result.active };
     render();
   } catch (e) {}
-<<<<<<< HEAD
-=======
-};
-const loadEvaluationAdmin = async () => {
-  if (evaluationAdminLoading || evaluationAdminState) return;
-  evaluationAdminLoading = true;
-  try {
-    const forms = await api('/api/evaluation-forms');
-    const report = await api('/api/evaluation-report');
-    evaluationAdminState = forms;
-    evaluationReportState = report;
-  } catch (e) {
-    evaluationAdminState = { forms: [], active: null };
-    evaluationReportState = { responses: [], byStudent: [], byCompany: [], aggregate: { responses: 0, averageRating: null } };
-  } finally {
-    evaluationAdminLoading = false;
-    render();
-  }
-};
-const editEvaluationForm = form => {
-  evaluationBuilder = form ? { id: form.id, title: form.title, status: form.status,
-    questions: form.questions.map(question => ({ ...question, optionsText: (question.options || []).join('\n') })) }
-    : { id: '', title: '', status: 'DRAFT', questions: [{ prompt: '', type: 'rating', required: true, optionsText: '' }] };
-  render();
-};
-const collectEvaluationBuilder = () => {
-  if (!evaluationBuilder) return;
-  evaluationBuilder.title = ($('#evaluation-title') || {}).value || '';
-  evaluationBuilder.status = ($('#evaluation-status') || {}).value || 'DRAFT';
-  evaluationBuilder.questions = evaluationBuilder.questions.map((question, index) => ({
-    id: question.id || '', prompt: ($('#evaluation-prompt-' + index) || {}).value || '',
-    type: ($('#evaluation-type-' + index) || {}).value || 'rating',
-    required: !!($('#evaluation-required-' + index) || {}).checked,
-    optionsText: ($('#evaluation-options-' + index) || {}).value || ''
-  }));
-  return evaluationBuilder;
-};
-const updateEvaluationPreview = () => {
-  const preview = $('#evaluation-live-preview');
-  if (!preview) return;
-  const title = ($('#evaluation-title') || {}).value || 'Evaluation form preview';
-  const questions = evaluationBuilder ? evaluationBuilder.questions.map((question, index) => ({
-    prompt: ($('#evaluation-prompt-' + index) || {}).value || 'Question ' + (index + 1),
-    type: ($('#evaluation-type-' + index) || {}).value || 'rating',
-    required: !!($('#evaluation-required-' + index) || {}).checked
-  })) : [];
-  preview.replaceChildren(h('h3', {}, title), ...questions.map(question =>
-    h('p', {}, question.prompt + ' · ' + question.type.replace('_', ' ') + (question.required ? ' · required' : ' · optional'))));
-};
-const saveEvaluationBuilder = async () => {
-  const state = collectEvaluationBuilder();
-  if (!state) return;
-  const body = { id: state.id, title: state.title, status: state.status, questionCount: String(state.questions.length) };
-  state.questions.forEach((question, index) => {
-    body['q' + index + 'Prompt'] = question.prompt;
-    body['q' + index + 'Type'] = question.type;
-    body['q' + index + 'Required'] = question.required ? '1' : '0';
-    body['q' + index + 'Options'] = question.optionsText;
-  });
-  try {
-    await api('/api/evaluation-forms', body);
-    toast('Evaluation form saved');
-    evaluationBuilder = null; evaluationAdminState = null; evaluationReportState = null;
-    await loadEvaluationAdmin();
-  } catch (e) {}
-};
-const evaluationAnswersSummary = response => {
-  let answers = {};
-  try { answers = JSON.parse(response.answers || '{}'); } catch (e) { return 'Answers could not be decoded'; }
-  const form = (evaluationAdminState?.forms || []).find(item => item.id === response.formId);
-  return (form?.questions || []).map(question => {
-    const value = answers[question.id];
-    return question.prompt + ': ' + (value === null || value === undefined ? '—' : String(value));
-  }).join(' · ');
-};
-const refresh = async () => { document.body.classList.add('is-loading'); try { D = await api('/api/data'); render(); } finally { document.body.classList.remove('is-loading'); } };
-const tickDeviceClock = () => {
-  const el = document.getElementById('device-time');
-  if (!el) return;
-  const now = new Date();
-  el.dateTime = now.toISOString();
-  el.textContent = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(now);
->>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
 };
 const loadEvaluationAdmin = async () => {
   if (evaluationAdminLoading || evaluationAdminState) return;
@@ -816,14 +730,9 @@ const views = {
             return;
           }
           if (!hasWorkplace) { status('Your company has not set a workplace location. Ask your company to add it in Profile.', true); return; }
-<<<<<<< HEAD
           const accuracyLimit = Number(D.settings.geofenceAccuracyMeters || 100);
           if (!Number.isFinite(fix.accuracy) || fix.accuracy > accuracyLimit) {
             status('Location accuracy is ±' + Math.round(fix.accuracy || 0) + ' m; it must be ' + accuracyLimit + ' m or better. Move to an open area and try again.', true); return;
-=======
-          if (!Number.isFinite(fix.accuracy) || fix.accuracy > 100) {
-            status('Location accuracy is ±' + Math.round(fix.accuracy || 0) + ' m; it must be 100 m or better. Move to an open area and try again.', true); return;
->>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
           }
           const rad = value => value * Math.PI / 180;
           const dLat = rad(Number(workplace.locationLat) - fix.lat), dLng = rad(Number(workplace.locationLng) - fix.lng);
@@ -909,12 +818,8 @@ const views = {
     h('div', { class: 'card' }, h('h2', {}, 'Applications and data'),
       h('div', { class: 'form' }, field('dl', 'Application deadline (empty = none)', 'date', '', s.deadline), field('rd', 'Keep CV files for (days)', 'number', '730', s.retentionDays),
         field('gm', 'Attendance geofence (metres)', 'number', '100', s.geofenceMeters || '100'),
-<<<<<<< HEAD
         field('ga', 'Maximum GPS accuracy radius (metres)', 'number', '100', s.geofenceAccuracyMeters || '100'),
         pbtn('Save settings', () => act('/api/settings', { deadline: v('dl'), retentionDays: v('rd'), geofenceMeters: v('gm'), geofenceAccuracyMeters: v('ga') }, 'Settings saved'))),
-=======
-        pbtn('Save settings', () => act('/api/settings', { deadline: v('dl'), retentionDays: v('rd'), geofenceMeters: v('gm') }, 'Settings saved'))),
->>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
       h('p', { class: 'sm' }, 'Server: ' + (s.production ? 'production mode' : 'development mode') + '. Email sending is ' + (s.mail ? 'ON: verification codes, reset codes and notifications are emailed.' : 'OFF: set the SMTP settings so students can verify their email.'))),
     h('div', { class: 'card' }, h('h2', {}, 'Student List'),
       h('p', {}, s.registerCount ? 'Only the ' + s.registerCount + ' students on the approved list can sign up.' : 'No approved student list is loaded. Public student registration is closed until the list is populated.'),
