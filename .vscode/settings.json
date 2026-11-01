@@ -1,4 +1,6 @@
 {
     "java.debug.settings.onBuildFailureProceed": true,
-    "liveServer.settings.port": 5501
+    "liveServer.settings.port": 5501,
+    "python.terminal.useEnvFile": true,
+    "java.project.explorer.showNonJavaResources": false
 }

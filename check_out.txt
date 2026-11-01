@@ -1,0 +1,19 @@
+At C:\Users\USER\OneDrive\Desktop\Internship Project\check_lock.ps1:34 char:60
++ Write-Output ("lock hidden after click: " + ($el -eq $null ? "removed ...
++                                                            ~
+Unexpected token '?' in expression or statement.
+At C:\Users\USER\OneDrive\Desktop\Internship Project\check_lock.ps1:34 char:59
++ Write-Output ("lock hidden after click: " + ($el -eq $null ? "removed ...
++                                                           ~
+Missing closing ')' in expression.
+At C:\Users\USER\OneDrive\Desktop\Internship Project\check_lock.ps1:34 char:84
++ ... ock hidden after click: " + ($el -eq $null ? "removed" : $el.hidden))
++                                                                        ~
+Unexpected token ')' in expression or statement.
+At C:\Users\USER\OneDrive\Desktop\Internship Project\check_lock.ps1:34 char:85
++ ... ock hidden after click: " + ($el -eq $null ? "removed" : $el.hidden))
++                                                                         ~
+Unexpected token ')' in expression or statement.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : UnexpectedToken
+ 

@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261028-unlock">
-  <link rel="stylesheet" href="portal-ui.css">
+  <link rel="stylesheet" href="style.css?v=20261101-welcome-flow-6">
+  <link rel="stylesheet" href="portal-ui.css?v=20261101-welcome-flow-6">
 </head>
 <body>
   <main id="landing" class="landing-page">
@@ -26,7 +26,7 @@
         <a href="#roles">For Partners</a>
         <a href="#how-it-works">How it works</a>
       </nav>
-      <button id="landing-login" class="landing-login" type="button">Sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button>
+      <a id="landing-login" class="landing-login" href="#login">Sign in <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></a>
     </header>
 
     <section class="landing-hero">
@@ -44,7 +44,7 @@
         <div class="hero-panel-glow"></div>
         <div class="journey-card">
           <div class="journey-top"><span>INTERNSHIP JOURNEY</span><b>2026 / 27</b></div>
-          <div class="journey-progress"><span style="width:68%"></span></div>
+          <div class="journey-progress"><span class="p68"></span></div>
           <div class="journey-stage"><strong>Placement in progress</strong><small>Building experience beyond the classroom</small></div>
           <div class="journey-steps">
             <div class="done"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span><b>Profile</b></div><div class="done"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span><b>Apply</b></div><div class="current"><span>3</span><b>Placement</b></div><div><span>4</span><b>Grow</b></div>
@@ -108,7 +108,7 @@
 
     <section class="landing-final"><div><span class="landing-section-label">Ready when you are</span><h2>Your next chapter starts here.</h2><p>Sign in to continue your internship journey with Palm University College.</p></div><button id="landing-final-login" class="landing-primary light" type="button">Sign in to the portal <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></button></section>
 
-    <footer class="landing-footer"><div class="landing-brand"><span class="landing-brand-mark"><img src="puc.png" alt="Palm University College"></span><span><strong>Palm University College</strong><small>Internship Placement Portal</small></span></div><span>© 2026 Palm University College · Internship Placement Portal</span></footer>
+    <footer class="landing-footer"><div class="landing-brand"><span class="landing-brand-mark"><img src="puc.png" alt="Palm University College"></span><span><strong>Palm University College</strong><small>Internship Placement Portal</small></span></div><div class="landing-footer-meta"><span>© 2026 Palm University College · Internship Placement Portal</span><span class="landing-footer-credit">Developed by Group 4 · Java Class</span></div></footer>
   </main>
 
   <main id="login" class="login" hidden>
@@ -133,12 +133,7 @@
     </section>
 
     <section class="auth-pane" aria-label="Sign in">
-      <div class="device">
-        <span class="device-btn device-action" aria-hidden="true"></span>
-        <span class="device-btn device-vol-up" aria-hidden="true"></span>
-        <span class="device-btn device-vol-down" aria-hidden="true"></span>
-        <span class="device-btn device-power" aria-hidden="true"></span>
-        <span class="device-btn device-camera" aria-hidden="true"></span>
+      <div class="device" data-state="home">
         <div class="device-bezel">
           <div class="device-screen">
             <div class="device-wallpaper" aria-hidden="true"></div>
@@ -151,19 +146,60 @@
                 <span class="device-battery"><i></i></span>
               </span>
             </header>
-            <form id="lf" class="login-form">
-              <div class="mobile-brand">
-                <img src="puc.png" alt="Palm University College">
+            <section id="welcome-screen" class="welcome-screen" aria-hidden="true" inert>
+              <div class="welcome-top"><button id="welcome-skip" class="welcome-skip" type="button">Skip</button></div>
+              <div class="welcome-content">
+                <div class="welcome-lock" aria-hidden="true">
+                  <span class="welcome-progress-ring"></span>
+                  <svg viewBox="0 0 48 48" focusable="false">
+                    <path class="welcome-lock-shackle" d="M16 21v-6a8 8 0 0 1 16 0v6"></path>
+                    <rect x="11" y="21" width="26" height="21" rx="6"></rect>
+                    <circle cx="24" cy="31" r="2"></circle>
+                    <path d="M24 33v4"></path>
+                  </svg>
+                </div>
+                <time class="welcome-time" id="welcome-time">9:41</time>
+                <time class="welcome-date" id="welcome-date">Monday, 27 October</time>
               </div>
+              <div class="welcome-notification">
+                <img src="puc.png" alt="">
+                <span><strong>Palm Internship Portal</strong><small>Welcome. Preparing your secure sign-in…</small></span>
+              </div>
+            </section>
+            <section id="auth-home-screen" class="auth-home-screen" aria-labelledby="auth-home-title">
+              <div class="home-card">
+                <div class="home-brand"><img src="puc.png" alt="Palm University College"></div>
+                <p class="home-kicker">Internship Placement Portal</p>
+                <h1 id="auth-home-title" tabindex="-1">Welcome to Palm Internship Portal</h1>
+                <p class="home-intro">Choose how you would like to continue.</p>
+                <div class="home-actions">
+                  <a class="home-action home-action-primary" href="#auth-forms" data-auth-mode="li">Sign in</a>
+                  <button class="home-action" type="button" data-auth-mode="sg" data-student-only>Create student account</button>
+                  <button class="home-action home-action-tertiary" type="button" data-auth-mode="ar" data-student-only>Request access</button>
+                </div>
+                <p class="home-contact" data-role-contact hidden>Need an account? Contact the school office.</p>
+                <button class="home-forgot" type="button" data-auth-mode="rs">Forgot password?</button>
+                <footer class="home-footer" aria-label="More sign-in options">
+                  <button type="button" data-auth-mode="vf">Verify email</button>
+                  <button type="button" data-auth-mode="pv">Privacy notice</button>
+                  <button type="button" data-auth-mode="lv">Check a letter</button>
+                </footer>
+              </div>
+            </section>
+            <div id="login-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+            <div id="auth-forms" class="auth-forms">
+              <form id="lf" class="login-form" method="post" action="/api/login">
+              <button type="button" class="auth-back" data-auth-back aria-label="Back to sign-in options"><span aria-hidden="true">‹</span> Options</button>
               <header class="auth-heading">
                 <span class="auth-kicker">Internship Placement Portal</span>
-                <h1>Welcome back</h1>
+                <h1 id="login-form-title">Sign in</h1>
                 <p>Sign in to continue to your account.</p>
+                <p id="login-role-contact" class="login-role-contact" hidden>Need an account? Contact the school office.</p>
               </header>
 
               <div class="auth-fields">
                 <label class="auth-field" for="un">
-                  <span>Username or student ID</span>
+                  <span id="login-username-label">Username or student ID</span>
                   <span class="auth-input">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
                     <input id="un" name="username" type="text" placeholder="Enter your username or ID" required autocomplete="username">
@@ -188,17 +224,7 @@
                 <span class="secure-icon" aria-hidden="true">✓</span>
                 <span>Your account is protected by secure sign-in.</span>
               </footer>
-            </form>
-            <div class="device-lock" id="device-lock" role="button" tabindex="0" aria-label="Unlock phone" onclick="if(window.unlockPhone) window.unlockPhone();">
-              <div class="lock-wallpaper" aria-hidden="true"></div>
-              <div class="lock-content">
-                <time class="lock-time" id="lock-time" datetime="">9:41</time>
-                <span class="lock-date" id="lock-date">Monday, 27 October</span>
-              </div>
-              <div class="lock-footer">
-                <button type="button" class="lock-button" onclick="if(window.unlockPhone) window.unlockPhone();">Tap to unlock</button>
-                <span class="lock-swipe" aria-hidden="true"></span>
-              </div>
+              </form>
             </div>
             <span class="device-home" aria-hidden="true"></span>
           </div>
@@ -210,56 +236,6 @@
   <div id="app" hidden></div>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="portal-icons.js"></script>
-  <script src="app.js"></script>
-  <script>
-    (function () {
-      const lock = document.getElementById('device-lock');
-      const device = document.querySelector('.device');
-      if (!lock || !device) return;
-      const unlock = function () {
-        if (device.classList.contains('is-unlocked')) return;
-        device.classList.add('is-unlocked');
-        lock.style.transition = 'transform .78s cubic-bezier(.22,1,.36,1), opacity .62s ease';
-        lock.style.transform = 'translateY(-100%)';
-        lock.style.opacity = '0';
-        lock.style.pointerEvents = 'none';
-        setTimeout(function () {
-          lock.hidden = true;
-          lock.remove();
-          const input = document.getElementById('un');
-          if (input) input.focus();
-        }, 820);
-      };
-      window.unlockPhone = unlock;
-      window.unlockPhone = unlock;
-      lock.addEventListener('click', unlock);
-      lock.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); unlock(); }
-      });
-      let startY = null;
-      lock.addEventListener('touchstart', function (e) { startY = e.touches[0].clientY; }, { passive: true });
-      lock.addEventListener('touchend', function (e) {
-        if (startY !== null) {
-          const y = e.changedTouches[0].clientY;
-          if (startY - y > 45) unlock();
-        }
-        startY = null;
-      }, { passive: true });
-      const sync = function () {
-        const now = new Date();
-        const t = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const d = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-        const lt = document.getElementById('lock-time');
-        const ld = document.getElementById('lock-date');
-        const st = document.getElementById('device-time');
-        if (lt) lt.textContent = t;
-        if (ld) ld.textContent = d;
-        if (st) st.textContent = t;
-        if (lt) lt.setAttribute('datetime', now.toISOString());
-      };
-      sync();
-      setInterval(sync, 30000);
-    })();
-  </script>
+  <script src="app.js?v=20261101-welcome-flow-6"></script>
 </body>
 </html>

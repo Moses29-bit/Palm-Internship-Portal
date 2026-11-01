@@ -31,7 +31,7 @@ public final class PortalSecurity {
         h.put("X-Content-Type-Options","nosniff"); h.put("X-Frame-Options","DENY");
         h.put("Referrer-Policy","no-referrer"); h.put("Cache-Control","no-store");
         h.put("Permissions-Policy","camera=(), microphone=(), geolocation=()");
-        h.put("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+        h.put("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
         if(production) h.put("Strict-Transport-Security","max-age=31536000; includeSubDomains");
         return java.util.Collections.unmodifiableMap(h);
     }
