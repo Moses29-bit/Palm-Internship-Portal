@@ -46,8 +46,11 @@ schema against a real MariaDB or PostgreSQL instance.
 3. Use a physical phone over HTTPS. Confirm permission-denied, timeout, inaccurate GPS,
    missing workplace, outside-geofence, successful clock-in, and unrestricted
    clock-out messages and states.
+<<<<<<< HEAD
    Verify the admin-configured geofence distance and GPS accuracy thresholds are
    reflected in the student flow and enforced by the server.
+=======
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
 4. Confirm the attendance report filters and totals, opens a student's full history,
    and downloads the exact filtered rows with verification and distance columns.
 5. Create, activate, submit, and review an evaluation form. Verify that only admins can

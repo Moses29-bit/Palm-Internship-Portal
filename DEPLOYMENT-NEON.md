@@ -24,7 +24,10 @@ Before deploying the updated server, run [`static/migrations/20261025_student_ac
 ## Production safeguards
 
 - Keep `DATABASE_URL`, `ADMIN_PASSWORD`, and SMTP credentials in server-side environment or secret storage, not in frontend files.
-- Serve the Java server behind HTTPS.
+- Serve the Java server behind HTTPS. Browser geolocation used for attendance is unavailable on non-localhost HTTP origins.
+- Attendance location is requested only for explicit clock-in/clock-out actions; precise coordinates are available to administrators and purged according to the configured retention period. Companies see only on-site verification status.
 - Set `ALLOWED_ORIGINS` when the frontend is hosted on another origin.
 - Do not enable `ALLOW_FILE_MODE` for real data.
 - Review the Admin Audit log and establish a database backup/retention policy.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the full release checklist and [TEST-PLAN.md](TEST-PLAN.md) for the attendance, onboarding, evaluation privacy, and report-export checks.

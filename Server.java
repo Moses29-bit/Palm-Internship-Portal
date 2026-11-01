@@ -710,8 +710,12 @@ public class Server {
             + ",\"studentList\":" + arr(r.equals("ADMIN") ? register.entrySet().stream() : Stream.<Map.Entry<String, String>>empty(), e -> "{\"email\":" + q(e.getKey()) + ",\"name\":" + q(e.getValue()) + ",\"registered\":" + users.containsKey(e.getKey()) + "}")
             + ",\"accessRequests\":" + arr(r.equals("ADMIN") ? accessRequests.stream() : Stream.<AccessRequest>empty(), a -> "{\"id\":" + q(a.id()) + ",\"name\":" + q(a.name()) + ",\"program\":" + q(a.program()) + ",\"email\":" + q(a.email()) + ",\"reason\":" + q(a.reason()) + ",\"date\":" + q(a.date()) + ",\"status\":" + q(a.status()) + "}")
             + ",\"settings\":{\"deadline\":" + q(setting("deadline", "")) + ",\"retentionDays\":" + q(setting("retentionDays", "730"))
+<<<<<<< HEAD
             + ",\"geofenceMeters\":" + q(setting("geofenceMeters", "100")) + ",\"geofenceAccuracyMeters\":" + q(setting("geofenceAccuracyMeters", "100"))
             + ",\"registerCount\":" + register.size() + ",\"mail\":" + mailOn() + ",\"production\":" + PRODUCTION + "}"
+=======
+            + ",\"geofenceMeters\":" + q(setting("geofenceMeters", "100")) + ",\"registerCount\":" + register.size() + ",\"mail\":" + mailOn() + ",\"production\":" + PRODUCTION + "}"
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
             + ",\"resets\":" + arr(rs, e -> "{\"username\":" + q(e.getValue().username()) + ",\"code\":" + q(e.getKey()) + ",\"minutes\":" + Math.max(0, (e.getValue().exp() - System.currentTimeMillis()) / 60000) + "}") + "}";
     }
 
@@ -973,7 +977,11 @@ public class Server {
 
     record Coordinates(double lat, double lng) {}
     static Coordinates parseCoordinates(String text) {
+<<<<<<< HEAD
         Matcher m = Pattern.compile("(?<![\\d.])([-+]?(?:\\d{1,2}(?:\\.\\d+)?|90(?:\\.0+)?))\\s*,\\s*([-+]?(?:\\d{1,3}(?:\\.\\d+)?|180(?:\\.0+)?))(?![\\d.])").matcher(text);
+=======
+        Matcher m = Pattern.compile("([-+]?(?:\\d{1,2}(?:\\.\\d+)?|90(?:\\.0+)?))\\s*,\\s*([-+]?(?:\\d{1,3}(?:\\.\\d+)?|180(?:\\.0+)?))").matcher(text);
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
         if (!m.find()) return null;
         try {
             double lat = Double.parseDouble(m.group(1)), lng = Double.parseDouble(m.group(2));
@@ -1330,9 +1338,13 @@ public class Server {
             catch (NumberFormatException e) { return err("Set your location again; the timestamp is invalid."); }
             long nowMs = System.currentTimeMillis();
             if (point == null) return err("Set your location again; the coordinates are invalid.");
+<<<<<<< HEAD
             int maxAccuracy;
             try { maxAccuracy = Integer.parseInt(setting("geofenceAccuracyMeters", "100")); } catch (NumberFormatException e) { maxAccuracy = 100; }
             if (accuracy == null || accuracy < 0 || accuracy > maxAccuracy) return err("Your location accuracy is too low (worse than " + maxAccuracy + " m). Move to an open area and try again.");
+=======
+            if (accuracy == null || accuracy < 0 || accuracy > 100) return err("Your location accuracy is too low (worse than 100 m). Move to an open area and try again.");
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
             if (timestamp < nowMs - 60_000 || timestamp > nowMs + 5_000) return err("Your location fix is stale. Set your location again.");
             double distance = distanceMeters(point.lat(), point.lng(), workplace.locationLat(), workplace.locationLng());
             int geofence;
@@ -1449,6 +1461,7 @@ public class Server {
     static synchronized String saveSettings(Map<String, String> f) {
         String dl = f.getOrDefault("deadline", "").trim(), rd = f.getOrDefault("retentionDays", "").trim();
         String gm = f.getOrDefault("geofenceMeters", "").trim();
+<<<<<<< HEAD
         String ga = f.getOrDefault("geofenceAccuracyMeters", "").trim();
         if (!dl.isEmpty()) { try { LocalDate.parse(dl); } catch (Exception e) { return err("The deadline must be a valid date"); } }
         if (!rd.isEmpty()) { try { int n = Integer.parseInt(rd); if (n < 30 || n > 3650) return err("Keep CVs between 30 and 3650 days"); } catch (NumberFormatException e) { return err("Retention must be a number of days"); } }
@@ -1458,6 +1471,13 @@ public class Server {
         if (!ga.isEmpty()) settings.put("geofenceAccuracyMeters", ga);
         audit("settings_changed", "deadline=" + dl + " retentionDays=" + rd + " geofenceMeters=" + setting("geofenceMeters", "100")
             + " geofenceAccuracyMeters=" + setting("geofenceAccuracyMeters", "100")); save(); return OK;
+=======
+        if (!dl.isEmpty()) { try { LocalDate.parse(dl); } catch (Exception e) { return err("The deadline must be a valid date"); } }
+        if (!rd.isEmpty()) { try { int n = Integer.parseInt(rd); if (n < 30 || n > 3650) return err("Keep CVs between 30 and 3650 days"); } catch (NumberFormatException e) { return err("Retention must be a number of days"); } }
+        if (!gm.isEmpty()) { try { int n = Integer.parseInt(gm); if (n < 10 || n > 5000) return err("Geofence must be between 10 and 5000 metres"); } catch (NumberFormatException e) { return err("Geofence must be a number of metres"); } }
+        settings.put("deadline", dl); if (!rd.isEmpty()) settings.put("retentionDays", rd); if (!gm.isEmpty()) settings.put("geofenceMeters", gm);
+        audit("settings_changed", "deadline=" + dl + " retentionDays=" + rd + " geofenceMeters=" + setting("geofenceMeters", "100")); save(); return OK;
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
     }
 
     static synchronized String saveRegister(Map<String, String> f) {   // the school's own list of students allowed to sign up

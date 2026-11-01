@@ -174,6 +174,7 @@ class PortalE2E(unittest.TestCase):
         status, result = client.post("/api/onboarding/confirm", {})
         if status != 200 or not result.get("ok"):
             raise AssertionError("Company onboarding confirmation failed: " + json.dumps(result))
+<<<<<<< HEAD
         status, data = client.get_json("/api/data")
         if status != 200 or data["me"]["mustOnboard"]:
             raise AssertionError("Company onboarding remained active after confirmation")
@@ -182,6 +183,8 @@ class PortalE2E(unittest.TestCase):
         })
         if status != 200 or not result.get("ok"):
             raise AssertionError("Company actions remained blocked after onboarding: " + json.dumps(result))
+=======
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
         return client
 
     @classmethod
@@ -198,6 +201,7 @@ class PortalE2E(unittest.TestCase):
 
     def test_onboarding_geofence_privacy_exports_and_footer(self):
         student = login(self.base, self.students[0]["email"], self.student_password)
+<<<<<<< HEAD
         status, result = self.admin.post("/api/company/location", {
             "cid": self.company1["id"], "address": "Palm test workplace", "location": "100,20",
         })
@@ -212,6 +216,8 @@ class PortalE2E(unittest.TestCase):
         self.assertEqual(status, 400, result)
         status, result = self.admin.post("/api/settings", {"geofenceAccuracyMeters": "100"})
         self.assertEqual(status, 200, result)
+=======
+>>>>>>> 2f64cf010bea4070a63709421c7a98774d7b3115
         now = int(time.time() * 1000)
         for fix, expected in [
             ({"lat": "0", "lng": "0.00135", "accuracy": "5", "timestamp": str(now)}, 400),
