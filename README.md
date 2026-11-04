@@ -1,5 +1,7 @@
 # Palm Internship Portal
 
+For the full project overview, feature catalog, technology and dependency inventory, database model, integrations, development workflow, and operational notes, see [PROJECT-DOCUMENTATION.md](PROJECT-DOCUMENTATION.md).
+
 ## Requirements
 
 Build and run the Java server with JDK 25 or newer and Maven 3.9 or newer. The Maven compiler targets Java 25 bytecode.
