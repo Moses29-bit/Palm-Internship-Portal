@@ -649,6 +649,7 @@ table{width:100%;border-collapse:collapse;min-width:680px}th{text-align:left;pad
 .home-kicker{margin:0;text-align:center;color:#f5ebcf;font-size:.65rem;font-weight:750;letter-spacing:.14em;text-transform:uppercase}
 .auth-home-screen h1{max-width:330px;margin:0 auto;text-align:center;color:#fff;font-size:clamp(1.45rem,5vw,1.9rem);line-height:1.15}
 .auth-home-screen h1:focus-visible{outline:none}
+.auth-forms h1:focus-visible{outline:none}
 .home-intro{margin:0 0 3px;text-align:center;color:rgba(255,255,255,.94);font-size:.85rem}
 .home-actions{display:grid;gap:9px}
 .home-action{
