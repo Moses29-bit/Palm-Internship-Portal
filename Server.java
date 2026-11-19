@@ -165,7 +165,7 @@ public class Server {
     record AccessRequest(String id, String name, String program, String email, String reason, String date, String status) {}
     static final List<AccessRequest> accessRequests = new ArrayList<>();
     static final Set<String> unverified = ConcurrentHashMap.newKeySet();   // accounts waiting for email verification
-    record Code(String code, long exp) {}
+    record Code(String hash, long exp, int attempts, long lastSentAt) {}
     static final Map<String, Code> verifyCodes = new ConcurrentHashMap<>();
     static final Map<String, long[]> rates = new ConcurrentHashMap<>();
     record Aud(String at, String actor, String action, String detail) {}
@@ -251,9 +251,58 @@ public class Server {
     static void tellAdmins(String text) { users.values().stream().filter(u -> u.role().equals("ADMIN")).map(User::name).toList().forEach(n -> tell(n, text)); }
 
     static boolean mailOn() { return SMTP_HOST != null && !SMTP_HOST.isBlank() && SMTP_FROM != null && !SMTP_FROM.isBlank(); }
+    static boolean verificationReady() {
+        String secret = env("VERIFICATION_HMAC_SECRET");
+        boolean secureTransport = "starttls".equalsIgnoreCase(SMTP_SECURITY);
+        if (!PRODUCTION && SMTP_HOST != null
+                && (SMTP_HOST.equals("localhost") || SMTP_HOST.equals("127.0.0.1") || SMTP_HOST.equals("::1"))
+                && "none".equalsIgnoreCase(SMTP_SECURITY)) secureTransport = true;
+        return mailOn() && SMTP_USER != null && !SMTP_USER.isBlank()
+            && SMTP_PASS != null && !SMTP_PASS.isBlank()
+            && secureTransport && SMTP_FROM.equalsIgnoreCase(SMTP_USER)
+            && secret != null && secret.getBytes(StandardCharsets.UTF_8).length >= 32;
+    }
+    static String verificationHash(String email, String code) throws GeneralSecurityException {
+        String secret = env("VERIFICATION_HMAC_SECRET");
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32)
+            throw new GeneralSecurityException("Verification secret is not configured");
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        return Base64.getEncoder().encodeToString(
+            mac.doFinal((email.toLowerCase(Locale.ROOT) + ":" + code).getBytes(StandardCharsets.UTF_8)));
+    }
+    static String newVerificationCode() {
+        return String.format(Locale.ROOT, "%06d", RNG.nextInt(1_000_000));
+    }
+    static Code newVerificationChallenge(String email, String code, long now) throws GeneralSecurityException {
+        return new Code(verificationHash(email, code), now + 1_800_000L, 0, now);
+    }
+    static boolean verificationCodeMatches(String email, String supplied, Code stored) {
+        if (stored == null || supplied == null || !supplied.matches("\\d{6}")
+                || stored.attempts() >= 5 || stored.exp() < System.currentTimeMillis()) return false;
+        try {
+            byte[] expected = Base64.getDecoder().decode(stored.hash());
+            byte[] actual = Base64.getDecoder().decode(verificationHash(email, supplied));
+            return MessageDigest.isEqual(expected, actual);
+        } catch (IllegalArgumentException | GeneralSecurityException e) {
+            return false;
+        }
+    }
     static void sendMail(String to, String subject, String body) {   // sent in the background; a failure never blocks the portal
         if (!mailOn() || !ANY_EMAIL.matcher(to).matches()) return;
         MAILER.submit(() -> { try { smtp(to, subject, body); } catch (Exception e) { System.err.println("Mail to " + to + " failed: " + e.getMessage()); } });
+    }
+    static boolean sendVerificationMail(String to, String code) {
+        if (!verificationReady() || !ANY_EMAIL.matcher(to).matches()) return false;
+        try {
+            smtp(to, "Verify your Palm Internship Portal email",
+                "Your Palm Internship Portal verification code is " + code
+                    + ". It expires in 30 minutes. Do not share it.");
+            return true;
+        } catch (Exception e) {
+            System.err.println("Verification email delivery failed.");
+            return false;
+        }
     }
     static String smtpRead(BufferedReader in) throws IOException {
         String line, last = "";
@@ -263,14 +312,21 @@ public class Server {
     }
     static void smtpCmd(BufferedReader in, Writer out, String cmd) throws IOException { out.write(cmd + "\r\n"); out.flush(); smtpRead(in); }
     static void smtp(String to, String subject, String body) throws Exception {
-        Socket sock = SMTP_SECURITY.equals("ssl") ? SSLSocketFactory.getDefault().createSocket(SMTP_HOST, SMTP_PORT) : new Socket(SMTP_HOST, SMTP_PORT);
+        Socket sock;
+        if (SMTP_SECURITY.equalsIgnoreCase("ssl")) {
+            sock = SSLSocketFactory.getDefault().createSocket();
+            sock.connect(new InetSocketAddress(SMTP_HOST, SMTP_PORT), 10_000);
+        } else {
+            sock = new Socket();
+            sock.connect(new InetSocketAddress(SMTP_HOST, SMTP_PORT), 10_000);
+        }
         sock.setSoTimeout(15000);
         try {
             BufferedReader in = new BufferedReader(new InputStreamReader(sock.getInputStream(), StandardCharsets.UTF_8));
             Writer out = new OutputStreamWriter(sock.getOutputStream(), StandardCharsets.UTF_8);
             smtpRead(in);
             smtpCmd(in, out, "EHLO palm-portal");
-            if (SMTP_SECURITY.equals("starttls")) {
+            if (SMTP_SECURITY.equalsIgnoreCase("starttls")) {
                 smtpCmd(in, out, "STARTTLS");
                 SSLSocket ssl = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault()).createSocket(sock, SMTP_HOST, SMTP_PORT, true);
                 ssl.startHandshake();
@@ -278,7 +334,7 @@ public class Server {
                 out = new OutputStreamWriter(ssl.getOutputStream(), StandardCharsets.UTF_8);
                 smtpCmd(in, out, "EHLO palm-portal");
             }
-            if (SMTP_USER != null && !SMTP_USER.isBlank()) {
+            if (SMTP_USER != null && !SMTP_USER.isBlank() && SMTP_PASS != null && !SMTP_PASS.isBlank()) {
                 smtpCmd(in, out, "AUTH LOGIN");
                 smtpCmd(in, out, Base64.getEncoder().encodeToString(SMTP_USER.getBytes(StandardCharsets.UTF_8)));
                 smtpCmd(in, out, Base64.getEncoder().encodeToString(SMTP_PASS.getBytes(StandardCharsets.UTF_8)));
@@ -310,7 +366,7 @@ public class Server {
         evaluationResponses.removeIf(v -> v.sid().equals(sid));
         reports.removeIf(k -> { if (k.sid().equals(sid)) { rm(REPORTS.resolve(sid + "_" + k.cid() + ".pdf")); return true; } return false; });
         rm(CVS.resolve(sid + ".pdf"));
-        if (un != null) { users.remove(un); unverified.remove(un); notes.removeIf(n -> n.user().equals(un)); }
+        if (un != null) { users.remove(un); unverified.remove(un); verifyCodes.remove(un); notes.removeIf(n -> n.user().equals(un)); }
         students.removeIf(s -> s.id().equals(sid));
     }
 
@@ -835,24 +891,44 @@ public class Server {
     }
 
     static synchronized String signup(Map<String, String> f) throws Exception {
-        String name = clean(f.get("name"), 60), prog = clean(f.get("program"), 60), email = clean(f.get("email"), 120).toLowerCase(), pw = f.getOrDefault("password", "");
+        String name = clean(f.get("name"), 60), prog = clean(f.get("program"), 60), email = clean(f.get("email"), 120).toLowerCase(Locale.ROOT), pw = f.getOrDefault("password", "");
         if (!"1".equals(f.get("consent"))) return err("Please accept the privacy notice to create an account");
         if (name.length() < 2 || prog.length() < 2) return err("Name and programme are required");
         if (register.isEmpty()) return err("Student registration is currently closed. Please contact the Internship Office.");
         if (!allowedEmail(email)) return err("We could not verify your eligibility. If you are an eligible student, use Request Access to contact the Internship Office.");
-        if (PRODUCTION && !mailOn()) return err("Email verification is temporarily unavailable. Please contact the Internship Office.");
+        if (!verificationReady()) return err("Email verification is temporarily unavailable. Please contact the Internship Office.");
         if (!strong(pw)) return err(WEAK);
         if (users.containsKey(email)) return err("An account with this email already exists");
         String approvedName = register.get(email);
         if (approvedName != null && !approvedName.isBlank()) name = approvedName;
         String id = nid("S", students.stream().map(Student::id));
-        students.add(new Student(id, name, prog, email));
+        Student student = new Student(id, name, prog, email);
+        students.add(student);
         users.put(email, newUser(email, "STUDENT", id, pw));
-        boolean verify = mailOn();   // email verification needs mail to be configured
-        if (verify) { unverified.add(email); sendCode(email); }
-        audit(email, "signup", id + (verify ? " (waiting for email verification)" : ""));
+        unverified.add(email);
+        String code = newVerificationCode();
+        try {
+            verifyCodes.put(email, newVerificationChallenge(email, code, System.currentTimeMillis()));
+        } catch (GeneralSecurityException e) {
+            students.remove(student);
+            users.remove(email);
+            unverified.remove(email);
+            return err("Email verification is temporarily unavailable. Please contact the Internship Office.");
+        }
+        int auditCount = audits.size();
+        audit(email, "signup", id + " (waiting for email verification)");
         audit(email, "consent", "privacy notice accepted");
-        save(); return "{\"ok\":true,\"verify\":" + verify + "}";
+        if (!save()) {
+            students.remove(student);
+            users.remove(email);
+            unverified.remove(email);
+            verifyCodes.remove(email);
+            while (audits.size() > auditCount) audits.remove(audits.size() - 1);
+            return err("Unable to create your account right now. Please try again later.");
+        }
+        if (!sendVerificationMail(email, code))
+            return err("Your account is pending verification, but the email could not be sent. Please wait 60 seconds, then request a new code.");
+        return "{\"ok\":true,\"verify\":true}";
     }
 
     static synchronized String accessRequest(Map<String, String> f, String ip) {
@@ -889,25 +965,52 @@ public class Server {
         return OK;
     }
 
-    static void sendCode(String email) {
-        String code = "";
-        for (int i = 0; i < 6; i++) code += RNG.nextInt(10);
-        verifyCodes.put(email, new Code(code, System.currentTimeMillis() + 1_800_000));
-        sendMail(email, "Verify your email", "Your Palm Internship Portal verification code is " + code + ". It expires in 30 minutes.");
-    }
-
     static synchronized String verifyEmail(Map<String, String> f, String ip) {
         if (throttled("v:" + ip, 10)) return err("Too many attempts. Try again later.");
-        String em = f.getOrDefault("username", "").trim().toLowerCase(), code = f.getOrDefault("code", "").trim();
-        Code c = verifyCodes.get(em);
-        if (c == null || c.exp() < System.currentTimeMillis() || !c.code().equals(code)) return err("Invalid or expired code");
-        verifyCodes.remove(em); unverified.remove(em); audit(em, "email_verified", ""); save(); return OK;
+        String em = f.getOrDefault("username", "").trim().toLowerCase(Locale.ROOT), supplied = f.getOrDefault("code", "").trim();
+        Code stored = verifyCodes.get(em);
+        if (stored == null || !unverified.contains(em) || stored.exp() < System.currentTimeMillis()
+                || stored.attempts() >= 5) return err("Invalid or expired code");
+        if (!verificationCodeMatches(em, supplied, stored)) {
+            verifyCodes.put(em, new Code(stored.hash(), stored.exp(), stored.attempts() + 1, stored.lastSentAt()));
+            if (!save()) {
+                verifyCodes.put(em, stored);
+                return err("Unable to verify your email right now. Please try again later.");
+            }
+            return err("Invalid or expired code");
+        }
+        verifyCodes.remove(em);
+        unverified.remove(em);
+        int auditCount = audits.size();
+        audit(em, "email_verified", "");
+        if (!save()) {
+            verifyCodes.put(em, stored);
+            unverified.add(em);
+            while (audits.size() > auditCount) audits.remove(audits.size() - 1);
+            return err("Unable to verify your email right now. Please try again later.");
+        }
+        return OK;
     }
 
     static synchronized String resend(Map<String, String> f, String ip) {
         if (throttled("rv:" + ip, 5)) return err("Too many requests. Try again later.");
-        String em = f.getOrDefault("username", "").trim().toLowerCase();
-        if (unverified.contains(em)) sendCode(em);
+        String em = f.getOrDefault("username", "").trim().toLowerCase(Locale.ROOT);
+        Code previous = verifyCodes.get(em);
+        if (unverified.contains(em) && verificationReady()
+                && (previous == null || System.currentTimeMillis() - previous.lastSentAt() >= 60_000L)) {
+            String code = newVerificationCode();
+            try {
+                Code next = newVerificationChallenge(em, code, System.currentTimeMillis());
+                verifyCodes.put(em, next);
+                if (!save()) {
+                    verifyCodes.put(em, previous);
+                    return err("Unable to send a verification code right now. Please try again later.");
+                }
+                sendVerificationMail(em, code);
+            } catch (GeneralSecurityException e) {
+                return err("Email verification is temporarily unavailable. Please contact the Internship Office.");
+            }
+        }
         return OK;
     }
 
@@ -1993,6 +2096,10 @@ public class Server {
             r -> users.put(r[0], new User(r[0], r[1], r[2], Base64.getDecoder().decode(r[3]), Base64.getDecoder().decode(r[4]),
                 r[5].equals("1") || r[5].equalsIgnoreCase("true"), r[6].equals("1") || r[6].equalsIgnoreCase("true")))),
         new Tbl("unverified", "username", "username", () -> unverified.stream().map(u -> new Object[]{u}).toList(), r -> unverified.add(r[0])),
+        new Tbl("email_verification_tokens", "email,code_hash,expires_at_ms,attempts,last_sent_at_ms", "email",
+            () -> verifyCodes.entrySet().stream().map(e -> new Object[]{e.getKey(), e.getValue().hash(),
+                Long.toString(e.getValue().exp()), e.getValue().attempts(), Long.toString(e.getValue().lastSentAt())}).toList(),
+            r -> verifyCodes.put(r[0], new Code(r[1], Long.parseLong(r[2]), Integer.parseInt(r[3]), Long.parseLong(r[4])))),
         new Tbl("applications", "id,student_id,company_id,pref,statement,status,updated_on,school_note,company_note", "id",
             () -> apps.stream().map(a -> new Object[]{a.id, a.sid, a.cid, a.pref, a.statement, a.status, a.date, a.schoolNote, a.companyNote}).toList(),
             r -> { App a = new App(r[0], r[1], r[2], r[4], r[5], r[6]); a.pref = r[3]; a.schoolNote = r[7]; a.companyNote = r[8]; apps.add(a); }),
@@ -2065,7 +2172,7 @@ public class Server {
     static void clearAll() {
         students.clear(); companies.clear(); placements.clear(); apps.clear(); attendance.clear(); reports.clear(); posts.clear(); logs.clear(); evals.clear();
         evaluationForms.clear(); evaluationQuestions.clear(); evaluationResponses.clear();
-        notes.clear(); audits.clear(); settings.clear(); register.clear(); accessRequests.clear(); unverified.clear(); users.values().removeIf(u -> !u.name().equals("admin"));
+        notes.clear(); audits.clear(); settings.clear(); register.clear(); accessRequests.clear(); unverified.clear(); verifyCodes.clear(); users.values().removeIf(u -> !u.name().equals("admin"));
     }
 
     static void load() throws IOException {
@@ -2099,11 +2206,11 @@ public class Server {
         }
     }
 
-    static synchronized void save() {
-        if (!useDb) { saveFile(); return; }
+    static synchronized boolean save() {
+        if (!useDb) return saveFile();
         Map<Tbl, List<Object[]>> changed = new LinkedHashMap<>(); Map<Tbl, String> fps = new HashMap<>();
         for (Tbl t : TABLES) { List<Object[]> rs = t.rows.get(); String fp = fingerprint(rs); if (!fp.equals(t.last)) { changed.put(t, rs); fps.put(t, fp); } }
-        if (changed.isEmpty()) return;
+        if (changed.isEmpty()) return true;
         try (Connection c = conn()) {
             c.setAutoCommit(false);
             try {
@@ -2133,19 +2240,21 @@ public class Server {
                 c.commit();
                 if (!PG) try (var st = c.createStatement()) { st.execute("SET FOREIGN_KEY_CHECKS=1"); }
                 fps.forEach((t, fp) -> t.last = fp);
+                return true;
             } catch (SQLException e) { c.rollback(); throw e; }
-        } catch (SQLException e) { System.err.println("Database save failed: " + e.getMessage()); }
+        } catch (SQLException e) { System.err.println("Database save failed: " + e.getMessage()); return false; }
     }
 
     // ---------- data.tsv: only for ALLOW_FILE_MODE demos ----------
-    static void saveFile() {
+    static boolean saveFile() {
         List<String> L = new ArrayList<>();
         for (Tbl t : TABLES) for (Object[] row : t.rows.get()) {
             StringBuilder sb = new StringBuilder(t.name);
             for (Object o : row) sb.append('\t').append(o == null ? "" : o instanceof byte[] b ? b64(b) : String.valueOf(o).replace('\t', ' ').replace('\n', ' '));
             L.add(sb.toString());
         }
-        try { Files.write(DB, L); } catch (IOException e) { System.err.println("Save failed: " + e.getMessage()); }
+        try { Files.write(DB, L); return true; }
+        catch (IOException e) { System.err.println("Save failed: " + e.getMessage()); return false; }
     }
     static void loadFile() throws IOException {
         if (!Files.exists(DB)) return;

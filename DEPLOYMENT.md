@@ -9,17 +9,24 @@
 - A unique `ADMIN_PASSWORD` (at least 12 characters in production).
 
 For an existing database, apply the additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
-statements in the matching schema before deploying. Back up the database first. The
-application expects every configured table and column to exist at startup.
+statements in the matching schema and run
+[`static/migrations/20261118_email_verification.sql`](static/migrations/20261118_email_verification.sql)
+before deploying. Back up the database first. The application expects every configured
+table and column to exist at startup.
 
 ## Configuration and startup
 
 Set `DATABASE_URL` to the database connection string, `ADMIN_PASSWORD` to the
 administrator password, `PRODUCTION=true`, and `PORT` to the listening port. Configure
 SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, and optionally
-`SMTP_SECURITY`) if production email verification or notifications are required. Keep
-secrets in deployment environment settings; never put them in static files or source
-control.
+`SMTP_SECURITY=starttls`) and `VERIFICATION_HMAC_SECRET` (at least 32 random bytes) if
+production email verification or notifications are required. For Gmail, use
+`smtp.gmail.com:587`, a Google App Password, and the same Gmail address for `SMTP_USER`
+and `SMTP_FROM`; configure the App Password without spaces. Keep secrets in deployment
+environment settings; never put them in static files or source control. The HMAC secret
+must remain stable across restarts;
+changing it invalidates outstanding codes. New accounts remain blocked from login
+until a code sent successfully by SMTP is verified.
 
 Build and start from the repository root:
 

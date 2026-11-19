@@ -34,15 +34,15 @@ Configure these server-side environment variables in Vercel before deploying:
 - `ADMIN_PASSWORD`: a unique, strong password (at least 12 characters in production).
 - `PRODUCTION=true`.
 - `PORT=8080`.
-- SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, and optionally `SMTP_SECURITY`) if production email verification is required.
+- SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, and `SMTP_SECURITY=starttls`) plus `VERIFICATION_HMAC_SECRET` if production email verification is required.
 
 Never copy credentials from a local `.env` into the image or source control. Rotate any Neon credential that has been exposed, then save the replacement only in local secret storage and Vercel's encrypted environment settings. Use the direct/unpooled Neon URL only for migrations, not the app's `DATABASE_URL`.
 
 This configuration makes a container deployment possible; it does not make the current app horizontally scalable or its uploads durable. The server stores sessions and rate limits in process memory, rewrites application tables from in-memory state, and saves CV/report PDFs to local disk. Vercel may restart or scale containers, and local files are ephemeral, so sessions can be lost, concurrent instances can overwrite stale state, and uploaded documents can disappear. Do not use this deployment for real users until session/rate-limit state is shared, database writes are safe under concurrent instances, and CV/report files use durable object storage. Build and test first in a non-production Vercel environment.
 
-For an existing database, run [`static/migrations/20261025_student_access_requests.sql`](static/migrations/20261025_student_access_requests.sql) before deploying this version; it adds the request table and indexes without removing existing data.
+For an existing database, run [`static/migrations/20261025_student_access_requests.sql`](static/migrations/20261025_student_access_requests.sql) and [`static/migrations/20261118_email_verification.sql`](static/migrations/20261118_email_verification.sql) before deploying this version; they add tables and indexes without removing existing data.
 
-Student registration requires a populated approved list. If no list is loaded, signup is closed; configure the list in Admin → Student List before inviting students. Set `PRODUCTION=true`, use a strong `ADMIN_PASSWORD`, and configure SMTP to require email verification for production signups.
+Student registration requires a populated approved list. If no list is loaded, signup is closed; configure the list in Admin → Student List before inviting students. Set `PRODUCTION=true`, use a strong `ADMIN_PASSWORD`, and configure SMTP to require email verification for every new signup. For Gmail, enable 2-Step Verification, generate an App Password, then set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_SECURITY=starttls`, `SMTP_USER` and `SMTP_FROM` to the same Gmail address, and `SMTP_PASS` to the App Password without spaces. Also set `VERIFICATION_HMAC_SECRET` to a stable, random value of at least 32 bytes (for example, generate 32 random bytes with a trusted password manager). Keep these secrets only in `.env` or the deployment's encrypted environment settings; do not commit them. Signup does not succeed when verification is unavailable or email delivery fails; the pending account remains blocked from login and can request a new code after 60 seconds.
 
 ## Architecture foundation (Phase 1)
 

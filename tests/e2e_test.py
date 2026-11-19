@@ -1,12 +1,16 @@
 import csv
+import email.policy
 import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import socket
+import socketserver
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -15,6 +19,70 @@ import urllib.request
 import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+class CapturingSMTPHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.reply("220 localhost ESMTP")
+        auth_step = 0
+        collecting = False
+        message = []
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                return
+            command = line.decode("utf-8", errors="replace").rstrip("\r\n")
+            if collecting:
+                if command == ".":
+                    failed = False
+                    with self.server.messages_lock:
+                        raw_message = "\r\n".join(message)
+                        if self.server.fail_recipient and self.server.fail_recipient.lower() in raw_message.lower():
+                            self.server.fail_recipient = None
+                            failed = True
+                        else:
+                            self.server.messages.append(raw_message)
+                    collecting = False
+                    message = []
+                    self.reply("554 Delivery rejected" if failed else "250 Message accepted")
+                else:
+                    message.append(command)
+            elif command.upper().startswith(("EHLO ", "HELO ")):
+                self.reply("250 localhost")
+            elif command.upper() == "AUTH LOGIN":
+                auth_step = 1
+                self.reply("334 VXNlcm5hbWU6")
+            elif auth_step == 1:
+                auth_step = 2
+                self.reply("334 UGFzc3dvcmQ6")
+            elif auth_step == 2:
+                auth_step = 0
+                self.reply("235 Authentication successful")
+            elif command.upper().startswith(("MAIL FROM:", "RCPT TO:")):
+                self.reply("250 Accepted")
+            elif command.upper() == "DATA":
+                collecting = True
+                self.reply("354 End data with <CR><LF>.<CR><LF>")
+            elif command.upper() == "QUIT":
+                self.reply("221 Bye")
+                return
+            else:
+                self.reply("250 Accepted")
+
+    def reply(self, text):
+        self.wfile.write((text + "\r\n").encode())
+        self.wfile.flush()
+
+
+class CapturingSMTPServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self, address):
+        super().__init__(address, CapturingSMTPHandler)
+        self.messages = []
+        self.messages_lock = threading.Lock()
+        self.fail_recipient = None
 
 
 class Portal:
@@ -38,7 +106,10 @@ class Portal:
             response = urllib.request.urlopen(request, timeout=10)
         except urllib.error.HTTPError as error:
             response = error
-        return response.status, response.headers, response.read()
+        try:
+            return response.status, response.headers, response.read()
+        finally:
+            response.close()
 
     def post(self, path, values):
         status, _, body = self.request("POST", path, values)
@@ -66,8 +137,13 @@ class PortalE2E(unittest.TestCase):
     def setUpClass(cls):
         cls.process = None
         cls.tempdir = None
+        cls.smtp_server = None
+        cls.smtp_thread = None
         base = os.environ.get("PALM_BASE_URL")
         if not base:
+            cls.smtp_server = CapturingSMTPServer(("127.0.0.1", 0))
+            cls.smtp_thread = threading.Thread(target=cls.smtp_server.serve_forever, daemon=True)
+            cls.smtp_thread.start()
             cls.tempdir = pathlib.Path(tempfile.mkdtemp(prefix="palm-e2e-"))
             cls.addClassCleanup(cls.cleanup)
             classes = cls.tempdir / "classes"
@@ -96,6 +172,13 @@ class PortalE2E(unittest.TestCase):
                 "BIND": "127.0.0.1",
                 "PRODUCTION": "false",
                 "ALLOW_FILE_MODE": "false",
+                "SMTP_HOST": "127.0.0.1",
+                "SMTP_PORT": str(cls.smtp_server.server_address[1]),
+                "SMTP_SECURITY": "none",
+                "SMTP_USER": "test@example.test",
+                "SMTP_PASS": "test-password",
+                "SMTP_FROM": "test@example.test",
+                "VERIFICATION_HMAC_SECRET": "test-only-verification-secret-32-bytes",
             })
             java = os.environ.get("JAVA", "java")
             cp = str(classes) + os.pathsep + str(ROOT / "tests")
@@ -126,6 +209,7 @@ class PortalE2E(unittest.TestCase):
         cls.company_password = "CompanyOnboardedPass123!"
         cls.student_password = "StudentPortalPass123!"
         suffix = uuid.uuid4().hex[:8]
+        cls.suffix = suffix
         cls.company1 = cls.create_company("Alpha Workplace " + suffix)
         cls.company2 = cls.create_company("No Location Workplace " + suffix)
         cls.complete_onboarding(cls.company1)
@@ -142,6 +226,24 @@ class PortalE2E(unittest.TestCase):
             })
             if status != 200 or not result.get("ok"):
                 raise AssertionError("Could not register test student: " + json.dumps(result))
+            if cls.smtp_server:
+                if not result.get("verify"):
+                    raise AssertionError("Signup did not require email verification")
+                pending_status, pending_result = Portal(cls.base).post("/api/login", {
+                    "username": email, "password": cls.student_password,
+                })
+                if pending_status != 403:
+                    raise AssertionError("Unverified account was not blocked from login: " + json.dumps(pending_result))
+                code = cls.verification_code(email)
+                wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+                wrong_status, _ = Portal(cls.base).post("/api/verify", {"username": email, "code": wrong})
+                if wrong_status != 400:
+                    raise AssertionError("Incorrect verification code was accepted")
+                verify_status, verify_result = Portal(cls.base).post("/api/verify", {
+                    "username": email, "code": code,
+                })
+                if verify_status != 200 or not verify_result.get("ok"):
+                    raise AssertionError("Could not verify test student: " + json.dumps(verify_result))
         _, data = cls.admin.get_json("/api/data")
         for email, name in emails:
             cls.students.append(next(student for student in data["students"] if student["email"] == email))
@@ -195,6 +297,23 @@ class PortalE2E(unittest.TestCase):
                 cls.process.wait()
         if cls.tempdir:
             shutil.rmtree(cls.tempdir)
+        if cls.smtp_server:
+            cls.smtp_server.shutdown()
+            cls.smtp_server.server_close()
+            cls.smtp_thread.join(timeout=5)
+
+    @classmethod
+    def verification_code(cls, recipient):
+        with cls.smtp_server.messages_lock:
+            messages = list(cls.smtp_server.messages)
+        for raw_message in reversed(messages):
+            message = email.message_from_string(raw_message, policy=email.policy.default)
+            if recipient.lower() not in str(message.get("To", "")).lower():
+                continue
+            match = re.search(r"\b(\d{6})\b", message.get_content())
+            if match:
+                return match.group(1)
+        raise AssertionError("Verification email was not captured for " + recipient)
 
     def test_onboarding_geofence_privacy_exports_and_footer(self):
         student = login(self.base, self.students[0]["email"], self.student_password)
@@ -258,6 +377,50 @@ class PortalE2E(unittest.TestCase):
         status, _, body = Portal(self.base).request("GET", "/")
         self.assertEqual(status, 200)
         self.assertIn(b"Developed by Group 4", body)
+
+    def test_signup_remains_pending_when_email_delivery_fails(self):
+        if not self.smtp_server:
+            self.skipTest("Requires the local SMTP capture server")
+        email = "delivery.failure." + self.suffix + "@example.test"
+        self.admin.post("/api/register", {
+            "mode": "merge", "list": email + ",Delivery Failure Test",
+        })
+        with self.smtp_server.messages_lock:
+            self.smtp_server.fail_recipient = email
+        status, result = Portal(self.base).post("/api/signup", {
+            "name": "Delivery Failure Test", "program": "Computer Science",
+            "email": email, "password": self.student_password, "consent": "1",
+        })
+        self.assertEqual(status, 400, result)
+        self.assertIn("could not be sent", result.get("error", "").lower())
+        status, result = Portal(self.base).post("/api/login", {
+            "username": email, "password": self.student_password,
+        })
+        self.assertEqual(status, 403, result)
+
+    def test_verification_code_stops_after_five_incorrect_attempts(self):
+        if not self.smtp_server:
+            self.skipTest("Requires the local SMTP capture server")
+        email = "attempt.limit." + self.suffix + "@example.test"
+        self.admin.post("/api/register", {
+            "mode": "merge", "list": email + ",Attempt Limit Test",
+        })
+        status, result = Portal(self.base).post("/api/signup", {
+            "name": "Attempt Limit Test", "program": "Computer Science",
+            "email": email, "password": self.student_password, "consent": "1",
+        })
+        self.assertEqual(status, 200, result)
+        code = self.verification_code(email)
+        wrong = f"{(int(code) + 1) % 1_000_000:06d}"
+        for _ in range(5):
+            status, _ = Portal(self.base).post("/api/verify", {"username": email, "code": wrong})
+            self.assertEqual(status, 400)
+        status, result = Portal(self.base).post("/api/verify", {"username": email, "code": code})
+        self.assertEqual(status, 400, result)
+        status, result = Portal(self.base).post("/api/login", {
+            "username": email, "password": self.student_password,
+        })
+        self.assertEqual(status, 403, result)
 
 
 if __name__ == "__main__":
