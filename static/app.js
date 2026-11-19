@@ -993,7 +993,7 @@ const views = {
       ].map(([i, label, value]) => h('div', { class: 'metric-card' }, h('span', { class: 'metric-icon' }, icon(i)), h('span', { class: 'metric-label' }, label), h('strong', {}, value)))),
       h('div', { class: 'student-list-security card' }, h('div', { class: 'security-icon' }, icon('shieldCheck')), h('div', {},
         h('strong', {}, 'Registration gate is active'),
-        h('p', { class: 'sm' }, 'Only email addresses on this approved list can create student accounts. If the list is empty, public student registration is closed. New student accounts must verify their email before signing in.'))),
+        h('p', { class: 'sm' }, 'Only email addresses on this approved list can create student accounts. If the list is empty, public student registration is closed. Email verification is still required when mail is configured.'))),
       h('div', { class: 'split-grid' },
         h('section', { class: 'card' }, h('div', { class: 'section-head' }, h('div', {}, h('h2', {}, 'Add or import students'), h('p', { class: 'sm' }, 'Use one email per line. Optional format: email,name.'))),
           input, h('div', { class: 'form-actions' }, btn('Choose CSV / TXT file', () => file.click()), template, importBtn, replaceBtn, clearBtn), file, preview),
@@ -1551,7 +1551,7 @@ const PRIVACY = [
     if (!r.ok) { o.textContent = j.error; return null; }
     return j;
   };
-  const resend = async () => { const j = await post('/api/resend', { username: $('#vf-e').value }, vm); if (j) vm.textContent = 'If that account is waiting for verification, check your inbox. If no code arrives, wait 60 seconds before requesting another.'; };
+  const resend = async () => { const j = await post('/api/resend', { username: $('#vf-e').value }, vm); if (j) vm.textContent = 'If that account is waiting for verification, a new code is on its way.'; };
   forms.sg.addEventListener('submit', async e => {
     e.preventDefault();
     const em = $('#sg-e').value.trim().toLowerCase();

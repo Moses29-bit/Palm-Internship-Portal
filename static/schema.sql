@@ -20,13 +20,6 @@ CREATE TABLE IF NOT EXISTS companies (
   maps_link VARCHAR(500) NOT NULL DEFAULT '', location_set_on DATETIME NULL, location_set_by VARCHAR(120) NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS unverified (username VARCHAR(120) PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS email_verification_tokens (
-  email VARCHAR(254) PRIMARY KEY,
-  code_hash VARCHAR(128) NOT NULL,
-  expires_at_ms BIGINT NOT NULL,
-  attempts INT NOT NULL DEFAULT 0,
-  last_sent_at_ms BIGINT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS applications (
   id VARCHAR(10) PRIMARY KEY, student_id VARCHAR(10) NOT NULL, company_id VARCHAR(10) NOT NULL DEFAULT '',
   pref VARCHAR(60), statement VARCHAR(400) NOT NULL, status VARCHAR(12) NOT NULL, updated_on DATE NOT NULL,
